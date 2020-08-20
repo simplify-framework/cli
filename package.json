@@ -1,0 +1,14 @@
+{
+  "name": "serverless-diy",
+  "version": "1.0.0",
+  "description": "Serverless DIY",
+  "main": "index.js",
+  "scripts": {
+    "deploy": "node index.js"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "dotenv": "^8.2.0"
+  }
+}
