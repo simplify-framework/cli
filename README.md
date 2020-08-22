@@ -20,20 +20,20 @@ Options:
   -u, --update  force update function code                             [boolean]
  ```
   
-# Init your environment
+#### Init your environment
 
 `simplify-cli init`
 
-### TODO: 
+*** TODO:***
 - Prepare your environment (.env file) with a `Function Name`
 - Change function configuration if needed, eg: `MemorySize: 128`
 - Change resource access policy to your database or others.
 
-# Deploy your function
+#### Deploy your function
 
 `simplify-cli deploy`
 
-# Destroy your function
+#### Destroy your function
 
 `simplify-cli destroy`
 
