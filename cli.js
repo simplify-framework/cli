@@ -6,10 +6,11 @@ const simplify = require('simplify-sdk')
 const provider = require('simplify-sdk/provider')
 var functionMeta = { lashHash256: null }
 
-const deploy = function (configFile, policyFile, sourceDir, envFile, forceUpdate) {
+const deploy = function (configFile, envFile, roleFile, policyFile, sourceDir, forceUpdate) {
     require('dotenv').config({ path: path.resolve(envFile || '.env') })
     var config = simplify.getInputConfig(path.resolve(configFile || 'config.json'))
     var policyDocument = simplify.getContentFile(path.resolve(policyFile || 'policy.json'))
+    var assumeRoleDocument = simplify.getContentFile(path.resolve(roleFile || 'role.json'))
     if (fs.existsSync(path.resolve('.hash'))) {
         functionMeta.lashHash256 = fs.readFileSync(path.resolve('.hash')).toString()
     }
@@ -19,7 +20,7 @@ const deploy = function (configFile, policyFile, sourceDir, envFile, forceUpdate
             adaptor: provider.getIAM(),
             roleName: roleName,
             policyDocument: policyDocument,
-            assumeRoleDocument: null
+            assumeRoleDocument: assumeRoleDocument
         })
     }).then(data => {
         functionMeta.functionRole = data.Role
@@ -87,9 +88,10 @@ const destroy = function (configFile, envFile) {
     })
 }
 
-var argv = require('yargs').usage('simplify-faas init|deploy|destroy [options]')
+var argv = require('yargs').usage('simplify-cli init | deploy | destroy [options]')
     .string('config').alias('c', 'config').describe('config', 'function configuration').default('config', 'config.json')
     .string('policy').alias('p', 'policy').describe('policy', 'function policy to attach').default('policy', 'policy.json')
+    .string('role').alias('r', 'role').describe('role', 'function policy to attach').default('role', 'role.json')
     .string('source').alias('s', 'source').describe('source', 'function source to deploy').default('source', 'src')
     .string('env').alias('e', 'env').describe('env', 'environment variable file').default('env', '.env')
     .boolean('update').alias('u', 'update').describe('update', 'force update function code').default('update', false)
@@ -97,12 +99,13 @@ var argv = require('yargs').usage('simplify-faas init|deploy|destroy [options]')
 
 var cmdOPS = (argv._[0] || 'deploy').toUpperCase()
 if (cmdOPS === "DEPLOY") {
-    deploy(argv.config, argv.policy, argv.source, argv.env, argv.update)
+    deploy(argv.config, argv.env, argv.role, argv.policy, argv.source, argv.update)
 } else if (cmdOPS === "DESTROY") {
     destroy(argv.config, argv.env)
 } else if (cmdOPS === "INIT") {
     fs.writeFileSync(path.resolve(".env"), fs.readFileSync(path.join(__dirname, "init", ".env")))
     fs.writeFileSync(path.resolve("config.json"), fs.readFileSync(path.join(__dirname, "init", "config.json")))
+    fs.writeFileSync(path.resolve("role.json"), fs.readFileSync(path.join(__dirname, "init", "role.json")))
     fs.writeFileSync(path.resolve("policy.json"), fs.readFileSync(path.join(__dirname, "init", "policy.json")))
 }
 

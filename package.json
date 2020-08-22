@@ -1,10 +1,10 @@
 {
-  "name": "simplify-faas",
+  "name": "simplify-cli",
   "version": "0.1.0",
   "description": "Serverless CLI - Function as a Service",
   "main": "cli.js",
   "bin": {
-    "simplify-faas": "cli.js"
+    "simplify-cli": "cli.js"
   },
   "scripts": {},
   "repository": {
@@ -24,7 +24,7 @@
   "homepage": "https://github.com/simplify-framework/serverless#readme",
   "dependencies": {
     "dotenv": "^8.2.0",
-    "simplify-sdk": "0.1.37",
+    "simplify-sdk": "0.1.38",
     "yargs": "^15.4.1"
   }
 }
