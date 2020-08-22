@@ -22,17 +22,18 @@ Options:
   
 ### Init your environment
 
-    `simplify-cli init`
+    simplify-cli init
 
+    **Will generate .env, config.json, role.json and policy.json:**
     - Prepare your environment (.env file) with a `Function Name`
     - Change function configuration if needed, eg: `MemorySize: 128`
     - Change resource access policy to your database or others.
 
 ### Deploy your function
 
-    `simplify-cli deploy`
+    simplify-cli deploy
 
 ### Destroy your function
 
-    `simplify-cli destroy`
+    simplify-cli destroy
 
