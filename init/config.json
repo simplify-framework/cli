@@ -5,10 +5,18 @@
         "Name": "${DEPLOYMENT_BUCKET}",
         "Key": "builds/${DATE_TODAY}"
     },
+    "OutputFolder": ".simplify/${DEPLOYMENT_ENV}",
     "Function": {
-        "FunctionName": "${FUNCTION_NAME}",
+        "FunctionName": "${FUNCTION_NAME}-${DEPLOYMENT_ENV}",
         "Handler": "${FUNCTION_HANDLER}",
         "Role": "${FUNCTION_ROLE}",
-        "Runtime": "${FUNCTION_RUNTIME}"
+        "Runtime": "${FUNCTION_RUNTIME}",
+        "Environment": {
+            "Variables": {
+                "REGION": "${DEPLOYMENT_REGION}",
+                "ENVIRONEMNT": "${DEPLOYMENT_ENV}"
+            }
+        },
+        "Layers": []
     }
 }
