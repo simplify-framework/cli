@@ -15,8 +15,8 @@ provider.setConfig(config).then(_ => {
     return simplify.createOrUpdateFunctionRole({
         adaptor: provider.getIAM(),
         roleFunctionName: roleFunctionName,
-        assumeRoleDocument: null,
-        policyDocument: policyDocument
+        policyDocument: policyDocument,
+        assumeRoleDocument: null
     })
 }).then(data => {
     functionMeta.functionRole = data.Role
