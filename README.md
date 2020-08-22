@@ -18,6 +18,7 @@ Options:
   -s, --source  function source to deploy                    [string] [required]
   -e, --env     environment variable file                               [string]
   -u, --update  force update function code                             [boolean]
+  -l, --layer   deploy source folder as layer                          [boolean]
  ```
   
 ### Init your environment
@@ -32,9 +33,12 @@ Options:
 
 ### Deploy your function
 
-    simplify-cli deploy
+    1. simplify-cli deploy -s "src"                 # resilience deploying your function code 
+    2. simplify-cli deploy -u                       # force re-deploying your function code 
+    3. simplify-cli deploy -l -s "layer"            # adding layer to your function configuration
 
 ### Destroy your function
 
-    simplify-cli destroy
+    1. simplify-cli destroy                         # destroy your function only, keep layers
+    2. simplify-cli destroy -l                      # destroy your function with all layers
 
