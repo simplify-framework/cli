@@ -3,6 +3,7 @@ A minimalist and optimistic serverless framwork for AWS Lambda
 
 `npm install -g simplify-cli`
 
+```bash
 ╓───────────────────────────────────────────────────────────────╖
 ║              Simplify Framework - Version 0.1.38              ║
 ╙───────────────────────────────────────────────────────────────╜
@@ -17,7 +18,7 @@ Options:
   -s, --source  function source to deploy                    [string] [required]
   -e, --env     environment variable file                               [string]
   -u, --update  force update function code                             [boolean]
-  
+ ```
   
 # Init your environment
 
