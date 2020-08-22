@@ -1,14 +1,30 @@
 {
-  "name": "serverless-diy",
-  "version": "1.0.0",
-  "description": "Serverless DIY",
-  "main": "index.js",
-  "scripts": {
-    "deploy": "node index.js"
+  "name": "simplify-faas",
+  "version": "0.1.0",
+  "description": "Serverless CLI - Function as a Service",
+  "main": "cli.js",
+  "bin": {
+    "simplify-faas": "cli.js"
   },
-  "author": "",
-  "license": "ISC",
+  "scripts": {},
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/simplify-framework/serverless.git"
+  },
+  "keywords": [
+    "simplify-framework",
+    "serverless",
+    "lambda"
+  ],
+  "author": "Duong Dinh Cuong",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/simplify-framework/serverless/issues"
+  },
+  "homepage": "https://github.com/simplify-framework/serverless#readme",
   "dependencies": {
-    "dotenv": "^8.2.0"
+    "dotenv": "^8.2.0",
+    "simplify-sdk": "0.1.37",
+    "yargs": "^15.4.1"
   }
 }
