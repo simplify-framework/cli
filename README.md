@@ -24,7 +24,8 @@ Options:
 
     simplify-cli init
 
-    **Will generate .env, config.json, role.json and policy.json:**
+    Will generate .env, config.json, role.json and policy.json:
+    
     - Prepare your environment (.env file) with a `Function Name`
     - Change function configuration if needed, eg: `MemorySize: 128`
     - Change resource access policy to your database or others.
