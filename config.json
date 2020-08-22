@@ -5,11 +5,10 @@
         "Name": "${DEPLOYMENT_BUCKET}",
         "Key": "builds/${DATE_TODAY}"
     },
-    "OutputFile": "mylambda-meta.json",
     "Function": {
         "FunctionName": "${FUNCTION_NAME}",
-        "Handler": "index.handler",
+        "Handler": "${FUNCTION_HANDLER}",
         "Role": "${FUNCTION_ROLE}",
-        "Runtime": "nodejs12.x"
+        "Runtime": "$FUNCTION_RUNTIME"
     }
 }

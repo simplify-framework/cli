@@ -11,10 +11,10 @@ if (fs.existsSync(path.join(__dirname, ".hash"))) {
     functionMeta.lashHash256 = fs.readFileSync(path.join(__dirname, ".hash")).toString()
 }
 provider.setConfig(config).then(_ => {
-    const roleFunctionName = `${config.Function.FunctionName}Role`
+    const roleName = `${config.Function.FunctionName}Role`
     return simplify.createOrUpdateFunctionRole({
         adaptor: provider.getIAM(),
-        roleFunctionName: roleFunctionName,
+        roleName: roleName,
         policyDocument: policyDocument,
         assumeRoleDocument: null
     })
@@ -24,7 +24,7 @@ provider.setConfig(config).then(_ => {
         adaptor: provider.getStorage(),
         ...{
             bucketKey: config.Bucket.Key,
-            inputDirectory: 'src',
+            inputDirectory: process.env.FUNCTION_SOURCE || 'src',
             outputFilePath: 'dist',
             hashInfo: { FileSha256: functionMeta.lashHash256 }
         }
