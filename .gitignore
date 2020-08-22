@@ -1,0 +1,4 @@
+dist/
+.env
+.hash
+.output

@@ -1,29 +1,15 @@
 {
-    "Profile": "starwars-eu-demo",
-    "Region": "eu-west-1",
+    "Profile": "${DEPLOYMENT_PROFILE}",
+    "Region": "${DEPLOYMENT_REGION}",
     "Bucket": {
-        "Name": "starwars-deployment-eu-west-1-387ca2d0516f1748-demo",
+        "Name": "${DEPLOYMENT_BUCKET}",
         "Key": "builds/${DATE_TODAY}"
     },
     "OutputFile": "mylambda-meta.json",
     "Function": {
         "FunctionName": "${FUNCTION_NAME}",
         "Handler": "index.handler",
-        "MemorySize": 256,
-        "Publish": true,
         "Role": "${FUNCTION_ROLE}",
-        "Runtime": "nodejs12.x",
-        "Tags": {
-            "Group": "Simplify"
-        },
-        "Timeout": 15,
-        "TracingConfig": {
-            "Mode": "PassThrough"
-        },
-        "Environment": {
-            "Variables": {
-                "ENV": "development"
-            }
-        }
+        "Runtime": "nodejs12.x"
     }
 }
