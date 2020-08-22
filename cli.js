@@ -14,8 +14,8 @@ const deploy = function (configFile, envFile, roleFile, policyFile, sourceDir, f
     if (!fs.existsSync(path.resolve(config.OutputFolder))) {
         fs.mkdirSync(path.resolve(config.OutputFolder))
     }
-    if (fs.existsSync(path.resolve(config.OutputFolder, '.hash'))) {
-        functionMeta.lashHash256 = fs.readFileSync(path.resolve(config.OutputFolder, '.hash')).toString()
+    if (fs.existsSync(path.resolve(config.OutputFolder, `${config.Function.FunctionName}.hash`))) {
+        functionMeta.lashHash256 = fs.readFileSync(path.resolve(config.OutputFolder, `${config.Function.FunctionName}.hash`)).toString()
     }
     provider.setConfig(config).then(_ => {
         const roleName = `${config.Function.FunctionName}Role`
@@ -74,8 +74,8 @@ const deploy = function (configFile, envFile, roleFile, policyFile, sourceDir, f
         } else {
             if (data && data.FunctionArn) {
                 functionMeta = { ...functionMeta, data }
-                fs.writeFileSync(path.resolve(config.OutputFolder, '.output'), JSON.stringify(functionMeta, null, 4))
-                fs.writeFileSync(path.resolve(config.OutputFolder, '.hash'), functionMeta.uploadInfor.FileSha256)
+                fs.writeFileSync(path.resolve(config.OutputFolder, `${config.Function.FunctionName}.json`), JSON.stringify(functionMeta, null, 4))
+                fs.writeFileSync(path.resolve(config.OutputFolder, `${config.Function.FunctionName}.hash`), functionMeta.uploadInfor.FileSha256)
                 simplify.consoleWithMessage(`DeployFunction`, `Done: ${data.FunctionArn}`)
             } else {
                 simplify.consoleWithMessage(`DeployFunction`, `Done: Your code is up to date!`)
@@ -105,8 +105,8 @@ const destroy = function (configFile, envFile, withFunctionLayer) {
         let configInput = JSON.parse(fs.readFileSync(path.resolve(configFile || 'config.json')))
         configInput.Function.Layers = []
         fs.writeFileSync(path.resolve(configFile || 'config.json'), JSON.stringify(configInput, null, 4))
-        fs.unlinkSync(path.resolve(config.OutputFolder, '.hash'))
-        fs.unlinkSync(path.resolve(config.OutputFolder, '.output'))
+        fs.unlinkSync(path.resolve(config.OutputFolder, `${config.Function.FunctionName}.hash`))
+        fs.unlinkSync(path.resolve(config.OutputFolder, `${config.Function.FunctionName}.json`))
         return simplify.deleteDeploymentBucket({ adaptor: provider.getStorage(), bucketName: config.Bucket.Name }).then(function () {
             simplify.consoleWithMessage(`DestroyFunction`, `Done. ${data.FunctionName}`)
         })
@@ -135,6 +135,18 @@ if (cmdOPS === "DEPLOY") {
     fs.writeFileSync(path.resolve("config.json"), fs.readFileSync(path.join(__dirname, "init", "config.json")))
     fs.writeFileSync(path.resolve("role.json"), fs.readFileSync(path.join(__dirname, "init", "role.json")))
     fs.writeFileSync(path.resolve("policy.json"), fs.readFileSync(path.join(__dirname, "init", "policy.json")))
+    if (!fs.existsSync(path.resolve("src"))) {
+        fs.mkdirSync(path.resolve("src"), { recursive: true })
+    }
+    fs.writeFileSync(path.resolve("src", "index.js"), fs.readFileSync(path.join(__dirname, "init", "src", "index.js")))
+    if (!fs.existsSync(path.resolve("examples", "html"))) {
+        fs.mkdirSync(path.resolve("examples", "html"), { recursive: true })
+    }
+    fs.writeFileSync(path.resolve("examples", "application.yaml"), fs.readFileSync(path.join(__dirname, "init", "examples", "application.yaml")))
+    fs.writeFileSync(path.resolve("examples", "deployment.js"), fs.readFileSync(path.join(__dirname, "init", "examples", "deployment.js")))
+    fs.writeFileSync(path.resolve("examples", "html", "index.html"), fs.readFileSync(path.join(__dirname, "init", "examples", "html", "index.html")))
+    
+    simplify.finishWithMessage(`Initialized`, `${__dirname}`)
 }
 
 module.exports = { deployFunction: deploy, destroyFunction: destroy }

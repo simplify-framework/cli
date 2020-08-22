@@ -14,7 +14,8 @@
         "Environment": {
             "Variables": {
                 "REGION": "${DEPLOYMENT_REGION}",
-                "ENVIRONEMNT": "${DEPLOYMENT_ENV}"
+                "ENVIRONEMNT": "${DEPLOYMENT_ENV}",
+                "LOG_GROUP_NAME": "/aws/lambda/${FUNCTION_NAME}-${DEPLOYMENT_ENV}"
             }
         },
         "Layers": []

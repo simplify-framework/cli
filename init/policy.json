@@ -19,10 +19,12 @@
             "Action": [
                 "logs:CreateLogGroup",
                 "logs:CreateLogStream",
-                "logs:PutLogEvents"
+                "logs:PutLogEvents",
+                "logs:FilterLogEvents",
+                "logs:GetLogEvents"
             ],
             "Resource": [
-                "arn:aws:logs:${DEPLOYMENT_REGION}:${DEPLOYMENT_ACCOUNT}:log-group:/aws/lambda/${FUNCTION_NAME}:log-stream:*"
+                "arn:aws:logs:${DEPLOYMENT_REGION}:${DEPLOYMENT_ACCOUNT}:log-group:/aws/lambda/${FUNCTION_NAME}-${DEPLOYMENT_ENV}:log-stream:*"
             ]
         }
     ]
