@@ -1,0 +1,15 @@
+### - Application Deployment
+DEPLOYMENT_ENV=staging
+DEPLOYMENT_BUCKET=starwars-deployment-eu-west-1-387ca2d0516f1748-demo
+DEPLOYMENT_REGION=eu-west-1
+DEPLOYMENT_ACCOUNT=636275562948
+DEPLOYMENT_PROFILE=default
+### - Application StackName
+PROJECT_NAME=MyStarWars-demo
+### - WebSite Hosting Bucket
+WEBSITE_BUCKET=my-star-wars-387ca2d0516f1748-demo-website
+### - Backend Serverless Lambda
+FUNCTION_NAME=MyStarWars-demo-Lambda-632
+FUNCTION_RUNTIME=nodejs12.x
+FUNCTION_HANDLER=index.handler
+FUNCTION_SOURCE=src
