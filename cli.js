@@ -131,7 +131,7 @@ if (cmdOPS === "DEPLOY") {
 } else if (cmdOPS === "DESTROY") {
     destroy(argv.config, argv.env, argv.layer)
 } else if (cmdOPS === "INIT") {
-    fs.writeFileSync(path.resolve(".env"), fs.readFileSync(path.join(__dirname, "init", ".env")))
+    fs.writeFileSync(path.resolve(".env"), fs.readFileSync(path.join(__dirname, "init", "dotenv")))
     fs.writeFileSync(path.resolve("config.json"), fs.readFileSync(path.join(__dirname, "init", "config.json")))
     fs.writeFileSync(path.resolve("role.json"), fs.readFileSync(path.join(__dirname, "init", "role.json")))
     fs.writeFileSync(path.resolve("policy.json"), fs.readFileSync(path.join(__dirname, "init", "policy.json")))
