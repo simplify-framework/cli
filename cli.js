@@ -12,7 +12,7 @@ const deploy = function (configFile, envFile, roleFile, policyFile, sourceDir, f
     var policyDocument = simplify.getContentFile(path.resolve(policyFile || 'policy.json'))
     var assumeRoleDocument = simplify.getContentFile(path.resolve(roleFile || 'role.json'))
     if (!fs.existsSync(path.resolve(config.OutputFolder))) {
-        fs.mkdirSync(path.resolve(config.OutputFolder))
+        fs.mkdirSync(path.resolve(config.OutputFolder), { recursive: true })
     }
     if (fs.existsSync(path.resolve(config.OutputFolder, `${config.Function.FunctionName}.hash`))) {
         functionMeta.lashHash256 = fs.readFileSync(path.resolve(config.OutputFolder, `${config.Function.FunctionName}.hash`)).toString()
