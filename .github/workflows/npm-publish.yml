@@ -6,21 +6,9 @@ name: Node.js Package
 on:
   release:
     types: [created]
-  push:
-    branches:
-      - master # Change this to your default branch
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - uses: actions/setup-node@v1
-        with:
-          node-version: 12
-      - run: npm install
 
+jobs:
   publish-npm:
-    needs: build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
