@@ -17,8 +17,5 @@ def handler(event, context):
 
     return {
         'statusCode': 403, 
-        'body': json.dumps({
-            'code': 'ErrorServiceNotImplemetedException',
-            'message': 'The Service was not Implemented. [TODO: Update your code then deploy again!]'
-        })
+        'body': json.dumps(output_details)
     }
