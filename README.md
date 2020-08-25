@@ -5,20 +5,21 @@ A minimalist and optimistic serverless framwork for AWS Lambda
 
 ```bash
 ╓───────────────────────────────────────────────────────────────╖
-║              Simplify Framework - Version 0.1.38              ║
+║              Simplify Framework - Version 0.1.40              ║
 ╙───────────────────────────────────────────────────────────────╜
 simplify-cli init | deploy | destroy [options]
 
 Options:
-  --help        Show help                                              [boolean]
-  --version     Show version number                                    [boolean]
-  -c, --config  function configuration                       [string] [required]
-  -p, --policy  function policy to attach                    [string] [required]
-  -r, --role    function policy to attach                               [string]
-  -s, --source  function source to deploy                    [string] [required]
-  -e, --env     environment variable file                               [string]
-  -u, --update  force update function code                             [boolean]
-  -l, --layer   deploy source folder as layer                          [boolean]
+  --help          Show help                                            [boolean]
+  --version       Show version number                                  [boolean]
+  -c, --config    function configuration                     [string] [required]
+  -p, --policy    function policy to attach                  [string] [required]
+  -r, --role      function policy to attach                             [string]
+  -s, --source    function source to deploy                  [string] [required]
+  -e, --env       environment variable file                             [string]
+  -u, --update    force update function code                           [boolean]
+  -l, --layer     deploy source folder as layer                        [boolean]
+  -t, --template  Init nodejs or python template                        [string]
  ```
   
 ### Init your environment

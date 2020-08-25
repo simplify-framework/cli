@@ -18,7 +18,7 @@ const deploy = function (configFile, envFile, roleFile, policyFile, sourceDir, f
     if (fs.existsSync(path.resolve(config.OutputFolder, `${config.Function.FunctionName}.hash`))) {
         functionMeta.lashHash256 = fs.readFileSync(path.resolve(config.OutputFolder, `${config.Function.FunctionName}.hash`)).toString()
     }
-    provider.setConfig(config).then(_ => {
+    return provider.setConfig(config).then(_ => {
         const roleName = `${config.Function.FunctionName}Role`
         return simplify.createOrUpdateFunctionRole({
             adaptor: provider.getIAM(),
@@ -70,7 +70,8 @@ const deploy = function (configFile, envFile, roleFile, policyFile, sourceDir, f
                 configInput.Function.Layers = data.Layers
                 fs.writeFileSync(path.resolve(configFile || 'config.json'), JSON.stringify(configInput, null, 4))
             } catch(err) {
-                simplify.finishWithErrors(`DeployLayer`, err);
+                simplify.finishWithErrors(`DeployLayer`, err)
+                throw err
             }
         } else {
             if (data && data.FunctionArn) {
@@ -83,14 +84,15 @@ const deploy = function (configFile, envFile, roleFile, policyFile, sourceDir, f
             }
         }
     }).catch(err => simplify.finishWithErrors(`UploadFunction-ERROR`, err)).catch(err => {
-        simplify.consoleWithErrors(`DeployFunction-ERROR`, err);
+        simplify.consoleWithErrors(`DeployFunction-ERROR`, err)
+        throw err
     })
 }
 
 const destroy = function (configFile, envFile, withFunctionLayer) {
     require('dotenv').config({ path: path.resolve(envFile || '.env') })
     var config = simplify.getInputConfig(path.resolve(configFile || 'config.json'))
-    provider.setConfig(config).then(_ => {
+    return provider.setConfig(config).then(_ => {
         const roleName = `${config.Function.FunctionName}Role`
         return simplify.deleteFunctionRole({
             adaptor: provider.getIAM(),
@@ -112,7 +114,8 @@ const destroy = function (configFile, envFile, withFunctionLayer) {
             simplify.consoleWithMessage(`DestroyFunction`, `Done. ${data.FunctionName}`)
         })
     }).catch(err => simplify.finishWithErrors(`DestroyFunction-ERROR`, err)).catch(err => {
-        simplify.consoleWithErrors(`DestroyFunction-ERROR`, err);
+        simplify.consoleWithErrors(`DestroyFunction-ERROR`, err)
+        throw err
     })
 }
 
@@ -129,9 +132,9 @@ var argv = require('yargs').usage('simplify-cli init | deploy | destroy [options
 
 var cmdOPS = (argv._[0] || 'deploy').toUpperCase()
 if (cmdOPS === "DEPLOY") {
-    deploy(argv.config, argv.env, argv.role, argv.policy, argv.source, argv.update, argv.layer)
+    deploy(argv.config, argv.env, argv.role, argv.policy, argv.source, argv.update, argv.layer).then(_=>{}).catch(_=>{})
 } else if (cmdOPS === "DESTROY") {
-    destroy(argv.config, argv.env, argv.layer)
+    destroy(argv.config, argv.env, argv.layer).then(_=>{}).catch(_=>{})
 } else if (cmdOPS === "INIT") {
     const inputDirectory = path.join(__dirname, argv.template)
     utilities.getFilesInDirectory(inputDirectory).then(function (files) {
