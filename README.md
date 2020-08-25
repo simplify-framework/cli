@@ -1,9 +1,9 @@
-# Simplify - Serverless
+# Simplify Framework - Serverless CLI
 
 ![NPM Downloads](https://img.shields.io/npm/dw/simplify-cli)
 ![Package Version](https://img.shields.io/github/package-json/v/simplify-framework/serverless?color=green)
 
-A minimalist and optimistic serverless framwork for AWS Lambda
+*A minimalist and optimistic serverless framwork for managing AWS Lambda functions.*
 
 `npm install -g simplify-cli`
 
