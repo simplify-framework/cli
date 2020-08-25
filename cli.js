@@ -3,6 +3,7 @@
 const path = require('path')
 const fs = require('fs')
 const simplify = require('simplify-sdk')
+const utilities = require('simplify-sdk/utilities')
 const provider = require('simplify-sdk/provider')
 var functionMeta = { lashHash256: null }
 
@@ -123,6 +124,7 @@ var argv = require('yargs').usage('simplify-cli init | deploy | destroy [options
     .string('env').alias('e', 'env').describe('env', 'environment variable file').default('env', '.env')
     .boolean('update').alias('u', 'update').describe('update', 'force update function code').default('update', false)
     .boolean('layer').alias('l', 'layer').describe('layer', 'deploy source folder as layer').default('layer', false)
+    .string('template').alias('t', 'template').describe('template', 'Init nodejs or python template').default('template', 'nodejs')
     .demandOption(['c', 'p', 's']).demandCommand(1).argv;
 
 var cmdOPS = (argv._[0] || 'deploy').toUpperCase()
@@ -131,22 +133,23 @@ if (cmdOPS === "DEPLOY") {
 } else if (cmdOPS === "DESTROY") {
     destroy(argv.config, argv.env, argv.layer)
 } else if (cmdOPS === "INIT") {
-    fs.writeFileSync(path.resolve(".env"), fs.readFileSync(path.join(__dirname, "init", "dotenv")))
-    fs.writeFileSync(path.resolve("config.json"), fs.readFileSync(path.join(__dirname, "init", "config.json")))
-    fs.writeFileSync(path.resolve("role.json"), fs.readFileSync(path.join(__dirname, "init", "role.json")))
-    fs.writeFileSync(path.resolve("policy.json"), fs.readFileSync(path.join(__dirname, "init", "policy.json")))
-    if (!fs.existsSync(path.resolve("src"))) {
-        fs.mkdirSync(path.resolve("src"), { recursive: true })
-    }
-    fs.writeFileSync(path.resolve("src", "index.js"), fs.readFileSync(path.join(__dirname, "init", "src", "index.js")))
-    if (!fs.existsSync(path.resolve("examples", "html"))) {
-        fs.mkdirSync(path.resolve("examples", "html"), { recursive: true })
-    }
-    fs.writeFileSync(path.resolve("examples", "application.yaml"), fs.readFileSync(path.join(__dirname, "init", "examples", "application.yaml")))
-    fs.writeFileSync(path.resolve("examples", "deployment.js"), fs.readFileSync(path.join(__dirname, "init", "examples", "deployment.js")))
-    fs.writeFileSync(path.resolve("examples", "html", "index.html"), fs.readFileSync(path.join(__dirname, "init", "examples", "html", "index.html")))
-    
-    simplify.finishWithMessage(`Initialized`, `${__dirname}`)
+    const inputDirectory = path.join(__dirname, argv.template)
+    utilities.getFilesInDirectory(inputDirectory).then(function (files) {
+        files.forEach(function (filePath) {
+            var fileName = filePath.replace(inputDirectory, '').replace(/^\/+/, '').replace(/^\\+/, '')
+            fs.readFile(filePath, function (err, data) {
+                if (err) reject(err)
+                else {
+                    const pathDirName = path.dirname(path.resolve(fileName))
+                    if (!fs.existsSync(pathDirName)) {
+                        fs.mkdirSync(pathDirName, { recursive: true })
+                    }
+                    fs.writeFileSync(path.resolve(fileName.replace('dotenv', '.env')), fs.readFileSync(filePath))
+                }
+            })
+        })
+    })
+    simplify.finishWithMessage(`Initialized`, `${path.resolve('.')}`)
 }
 
 module.exports = { deployFunction: deploy, destroyFunction: destroy }
