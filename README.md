@@ -62,8 +62,8 @@ Options:
 
 ### Deployment Extension for CloudFromation
 
-Each stack has an ability to add an extension code for when deploying
-The extension file will be located at `${location}/${stack-name}.js`
+- Each stack has an ability to add an extension code for stack creation/destruction.
+- The extension Javascript file will be located at `${location}/${stack-name}.js`
 
 ```Javascript
 'use strict';
