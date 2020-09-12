@@ -70,14 +70,8 @@ const deploy = function (options) {
                 let configInput = JSON.parse(fs.readFileSync(path.resolve(configFile || 'config.json')))
                 configInput.Function.Layers = data.Layers
                 fs.writeFileSync(path.resolve(configFile || 'config.json'), JSON.stringify(configInput, null, 4))
-<<<<<<< HEAD
             } catch (err) {
                 simplify.finishWithErrors(`DeployLayer`, err);
-=======
-            } catch(err) {
-                simplify.finishWithErrors(`DeployLayer`, err)
-                throw err
->>>>>>> c848d9a4720fe9a25bc95c2a2c4022c1664f164a
             }
         } else {
             if (data && data.FunctionArn) {

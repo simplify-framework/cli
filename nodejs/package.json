@@ -13,6 +13,6 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "simplify-sdk": "^0.1.41"
+    "simplify-sdk": "^0.1.42"
   }
 }
