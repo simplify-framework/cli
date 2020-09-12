@@ -3,7 +3,9 @@ Description: Configuration for Lambda@Edge to facilitate deployments and further
 Parameters:
   Environment:
     Type: String
-  FunctionARNVersion:
+  FunctionName:
+    Type: String
+  FunctionARN:
     Type: String
 
 Resources:
@@ -23,7 +25,7 @@ Resources:
           TargetOriginId: LambdaEdgeOrigin
           LambdaFunctionAssociations:
             - EventType: origin-request
-              LambdaFunctionARN: !Ref FunctionARNVersion
+              LambdaFunctionARN: !Ref FunctionARN
           ForwardedValues:
             QueryString: 'false'
             Headers:
@@ -39,6 +41,6 @@ Outputs:
   StackId:
     Description: AWS Deployment StackId
     Value: !Ref AWS::StackId
-  CFDistribution: 
+  Endpoint: 
     Description: Cloudfront Distribution Domain Name
     Value: !GetAtt CFDistribution.DomainName

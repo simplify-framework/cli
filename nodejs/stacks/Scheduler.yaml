@@ -33,6 +33,6 @@ Outputs:
   StackId:
     Description: AWS Deployment StackId
     Value: !Ref AWS::StackId
-  ScheduleEventARN:
+  Endpoint:
     Description: CloudWatch Scheduled EventRule ARN
     Value: !GetAtt CloudWatchScheduledRule.Arn

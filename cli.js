@@ -6,8 +6,135 @@ const simplify = require('simplify-sdk')
 const utilities = require('simplify-sdk/utilities')
 const provider = require('simplify-sdk/provider')
 var functionMeta = { lashHash256: null }
+const opName = `Simplify`
 
-const deploy = function (options) {
+const getFunctionArn = function (functionName, locationFolder) {
+    const outputFile = path.resolve(locationFolder, `${functionName}.json`)
+    const outputData = JSON.parse(fs.readFileSync(outputFile))
+    return outputData.data.FunctionArn
+}
+
+const getErrorMessage = function(error) {
+    return error.message ? error.message : JSON.stringify(error)
+}
+
+const deployStack = function (options) {
+    const { configFile, envFile, configStackFolder, configStackName } = options
+    require('dotenv').config({ path: path.resolve(envFile || '.env') })
+    var config = simplify.getInputConfig(path.resolve(configFile || 'config.json'))
+    const stackConfigFile = path.resolve(config.OutputFolder, 'stack-config.json')
+    config.FunctionName = `${process.env.FUNCTION_NAME}-${process.env.DEPLOYMENT_ENV}`
+    provider.setConfig(config).then(function () {
+        simplify.uploadLocalFile({
+            adaptor: provider.getStorage(),
+            ...{ bucketKey: config.Bucket.Key, inputLocalFile: path.resolve(configStackFolder, `${configStackName}.yaml`) }
+        }).then(function (uploadInfo) {
+            function processStackData(stackData) {
+                let outputData = {}
+                outputData[configStackName] = {}
+                stackData.Outputs.map(function (o) {
+                    if (o.OutputKey == `Endpoint`) {
+                        outputData[configStackName].Endpoint = o.OutputValue
+                    } else if (o.OutputKey == `Region`) {
+                        outputData[configStackName].Region = o.OutputValue
+                    } else if (o.OutputKey == `StackId`) {
+                        outputData[configStackName].StackId = o.OutputValue
+                    }
+                })
+                if (fs.existsSync(stackConfigFile)) {
+                    outputData = { ...outputData, ...JSON.parse(fs.readFileSync(stackConfigFile)) }
+                }
+                const pathDirName = path.dirname(path.resolve(stackConfigFile))
+                if (!fs.existsSync(pathDirName)) {
+                    fs.mkdirSync(pathDirName, { recursive: true })
+                }
+                fs.writeFileSync(stackConfigFile, JSON.stringify(outputData, null, 4))
+                simplify.finishWithMessage(`${configStackName}`, `${outputData[configStackName].Endpoint}`)
+                return outputData
+            }
+            var TemplateURL = uploadInfo.Location
+            var parameters = {
+                Environment: process.env.DEPLOYMENT_ENV,
+                FunctionName: config.FunctionName,
+                FunctionARN: getFunctionArn(config.FunctionName, config.OutputFolder)
+            }
+            var stackPluginModule = {}
+            if (fs.existsSync(path.resolve(configStackFolder, `${configStackName}.js`))) {
+                stackPluginModule = require(path.resolve(configStackFolder, `${configStackName}`))
+            }
+            simplify.createOrUpdateStackOnComplete({
+                adaptor: provider.getResource(),
+                ...{
+                    stackName: `${process.env.PROJECT_NAME || config.FunctionName}-${configStackName}`,
+                    stackParameters: {
+                        Environment: `${process.env.DEPLOYMENT_ENV}`,
+                        ...(typeof stackPluginModule.getParameters === 'function' ? stackPluginModule.getParameters(parameters, config) : parameters)
+                    },
+                    stackTemplate: TemplateURL
+                }
+            }).then(function (stackData) {
+                if (stackPluginModule && typeof stackPluginModule.postCreation === 'function') {
+                    stackPluginModule.postCreation({ simplify, provider, config }, stackData, configStackName).then(result => processStackData(result))
+                } else {
+                    simplify.consoleWithMessage(`${configStackName}`, `Not found extension - ${path.resolve(configStackFolder, `${configStackName}.js`)}`)
+                    processStackData(stackData)
+                }
+            }).catch(error => {
+                simplify.finishWithErrors(`${opName}-Create${configStackName}`, getErrorMessage(error))
+            })
+        })
+    })
+}
+
+const destroyStack = function (options) {
+    const { configFile, envFile, configStackFolder, configStackName } = options
+    require('dotenv').config({ path: path.resolve(envFile || '.env') })
+    var config = simplify.getInputConfig(path.resolve(configFile || 'config.json'))
+    const stackConfigFile = path.resolve(config.OutputFolder, 'stack-config.json')
+    const stackResources = JSON.parse(fs.readFileSync(stackConfigFile))
+    provider.setConfig(config).then(function () {
+        function deleteByStackName(stackName) {
+            var stackPluginModule = {}
+            if (fs.existsSync(path.resolve(configStackFolder, `${stackName}.js`))) {
+                stackPluginModule = require(path.resolve(configStackFolder, `${stackName}`))
+            }
+            simplify.consoleWithMessage(`${opName}-CleanupResource`, `StackName - (${stackName})`)
+            simplify.deleteStackOnComplete({
+                adaptor: provider.getResource(),
+                ...{
+                    stackName: `${process.env.PROJECT_NAME || config.FunctionName}-${stackName}`,
+                }
+            }).then(function (stackData) {
+                if (stackPluginModule && typeof stackPluginModule.postCleanup === 'function') {
+                    stackPluginModule.postCleanup({ simplify, provider, config }, stackData, stackName, stackResources).then(result => {
+                        delete stackResources[stackName]
+                        fs.writeFileSync(stackConfigFile, JSON.stringify(stackResources, null, 4))
+                        simplify.finishWithMessage(`${stackName}`, `Done. Cleanned with extension - ${path.resolve(configStackFolder, `${stackName}.js`)}`)
+                    }).catch(function (error) {
+                        simplify.finishWithErrors(`${opName}-CleanupResource:`, getErrorMessage(error))
+                    })
+                } else {
+                    delete stackResources[stackName]
+                    fs.writeFileSync(stackConfigFile, JSON.stringify(stackResources, null, 4))
+                    simplify.finishWithMessage(`${stackName}`, `Done. No extension found - ${path.resolve(configStackFolder, `${stackName}.js`)}`)
+                }
+            }).catch(function (error) {
+                simplify.finishWithErrors(`${opName}-CleanupResource:`, getErrorMessage(error))
+            })
+        }
+        if (configStackName == "*" && fs.existsSync(stackConfigFile)) {
+            Object.keys(stackResources).forEach(function (stackName) {
+                deleteByStackName(stackName)
+            })
+        } else {
+            deleteByStackName(configStackName)
+        }
+    }).catch(function (error) {
+        simplify.finishWithErrors(`${opName}-LoadCredentials`, getErrorMessage(error))
+    })
+}
+
+const deployFunction = function (options) {
     const { configFile, envFile, roleFile, policyFile, sourceDir, forceUpdate, asFunctionLayer, publishNewVersion } = options
     require('dotenv').config({ path: path.resolve(envFile || '.env') })
     var config = simplify.getInputConfig(path.resolve(configFile || 'config.json'))
@@ -70,8 +197,8 @@ const deploy = function (options) {
                 let configInput = JSON.parse(fs.readFileSync(path.resolve(configFile || 'config.json')))
                 configInput.Function.Layers = data.Layers
                 fs.writeFileSync(path.resolve(configFile || 'config.json'), JSON.stringify(configInput, null, 4))
-            } catch (err) {
-                simplify.finishWithErrors(`DeployLayer`, err);
+            } catch (error) {
+                simplify.finishWithErrors(`DeployLayer`, getErrorMessage(error));
             }
         } else {
             if (data && data.FunctionArn) {
@@ -98,13 +225,13 @@ const deploy = function (options) {
                 simplify.consoleWithMessage(`DeployFunction`, `Done: Your code is up to date!`)
             }
         }
-    }).catch(err => simplify.finishWithErrors(`UploadFunction-ERROR`, err)).catch(err => {
-        simplify.consoleWithErrors(`DeployFunction-ERROR`, err)
-        throw err
+    }).catch(error => simplify.finishWithErrors(`UploadFunction-ERROR`, getErrorMessage(error))).catch(error => {
+        simplify.consoleWithErrors(`DeployFunction-ERROR`, getErrorMessage(error))
+        throw error
     })
 }
 
-const destroy = function (options) {
+const destroyFunction = function (options) {
     const { configFile, envFile, withFunctionLayer } = options
     require('dotenv').config({ path: path.resolve(envFile || '.env') })
     var config = simplify.getInputConfig(path.resolve(configFile || 'config.json'))
@@ -129,9 +256,9 @@ const destroy = function (options) {
         return simplify.deleteDeploymentBucket({ adaptor: provider.getStorage(), bucketName: config.Bucket.Name }).then(function () {
             simplify.consoleWithMessage(`DestroyFunction`, `Done. ${data.FunctionName}`)
         })
-    }).catch(err => simplify.finishWithErrors(`DestroyFunction-ERROR`, err)).catch(err => {
-        simplify.consoleWithErrors(`DestroyFunction-ERROR`, err)
-        throw err
+    }).catch(error => simplify.finishWithErrors(`DestroyFunction-ERROR`, getErrorMessage(error))).catch(error => {
+        simplify.consoleWithErrors(`DestroyFunction-ERROR`, getErrorMessage(error))
+        throw error
     })
 }
 
@@ -141,30 +268,54 @@ var argv = require('yargs').usage('simplify-cli init | deploy | destroy [options
     .string('role').alias('r', 'role').describe('role', 'function policy to attach').default('role', 'role.json')
     .string('source').alias('s', 'source').describe('source', 'function source to deploy').default('source', 'src')
     .string('env').alias('e', 'env').describe('env', 'environment variable file').default('env', '.env')
-    .boolean('update').alias('u', 'update').describe('update', 'force update function code').default('update', false)
+    .boolean('update').describe('update', 'force update function code').default('update', false)
     .boolean('publish').describe('publish', 'force publish with a version').default('publish', false)
-    .boolean('layer').alias('l', 'layer').describe('layer', 'deploy source folder as layer').default('layer', false)
-    .string('template').alias('t', 'template').describe('template', 'Init nodejs or python template').default('template', 'nodejs')
+    .boolean('layer').describe('layer', 'deploy source folder as layer').default('layer', false)
+    .string('location').describe('location', 'stack folder to deploy').default('location', 'stacks')
+    .string('stack-name').describe('stack-name', 'stack name to deploy')
+    .string('template').describe('template', 'Init nodejs or python template').default('template', 'nodejs')
     .demandOption(['c', 'p', 's']).demandCommand(1).argv;
 
+if (argv['stack-name'] !== undefined) {
+    argv['stack-name'] = argv['stack-name'] ? argv['stack-name'] : '*'
+}
 var cmdOPS = (argv._[0] || 'deploy').toUpperCase()
 if (cmdOPS === "DEPLOY") {
-    deploy({
-        configFile: argv.config,
-        envFile: argv.env,
-        roleFile: argv.role,
-        policyFile: argv.policy,
-        sourceDir: argv.source,
-        forceUpdate: argv.update,
-        asFunctionLayer: argv.layer,
-        publishNewVersion: argv.publish
-    })
+    if (argv['stack-name'] !== undefined) {
+        deployStack({
+            configFile: argv.config,
+            envFile: argv.env,
+            configStackFolder: argv.location,
+            configStackName: argv['stack-name']
+        })
+    } else {
+        deployFunction({
+            configFile: argv.config,
+            envFile: argv.env,
+            roleFile: argv.role,
+            policyFile: argv.policy,
+            sourceDir: argv.source,
+            forceUpdate: argv.update,
+            asFunctionLayer: argv.layer,
+            publishNewVersion: argv.publish
+        })
+    }
+
 } else if (cmdOPS === "DESTROY") {
-    destroy({
-        configFile: argv.config,
-        envFile: argv.env,
-        withFunctionLayer: argv.layer
-    })
+    if (argv['stack-name'] !== undefined) {
+        destroyStack({
+            configFile: argv.config,
+            envFile: argv.env,
+            configStackFolder: argv.location,
+            configStackName: argv['stack-name']
+        })
+    } else {
+        destroyFunction({
+            configFile: argv.config,
+            envFile: argv.env,
+            withFunctionLayer: argv.layer
+        })
+    }
 } else if (cmdOPS === "INIT") {
     const inputDirectory = path.join(__dirname, argv.template)
     utilities.getFilesInDirectory(inputDirectory).then(function (files) {
@@ -185,4 +336,9 @@ if (cmdOPS === "DEPLOY") {
     simplify.finishWithMessage(`Initialized`, `${path.resolve('.')}`)
 }
 
-module.exports = { deployFunction: deploy, destroyFunction: destroy }
+module.exports = {
+    deployFunction,
+    destroyFunction,
+    deployStack,
+    destroyStack
+}

@@ -1,6 +1,6 @@
 {
   "name": "simplify-cli",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "Serverless CLI - Function as a Service",
   "main": "cli.js",
   "bin": {

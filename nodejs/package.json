@@ -6,9 +6,8 @@
   "scripts": {
     "deploy": "simplify-cli deploy",
     "destroy": "simplify-cli destroy",
-    "website": "cd stacks && node website-s3.js",
-    "scheduler": "cd stacks && node schedule-rule.js",
-    "restapi": "cd stacks && node http-restapi.js"
+    "stack-deploy": "simplify-cli deploy --stack-name",
+    "stack-destroy": "simplify-cli destroy --stack-name"
   },
   "author": "",
   "license": "ISC",
