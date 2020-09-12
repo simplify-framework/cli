@@ -1,0 +1,44 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: API Gateway resource stack creation using Simplify CLI
+Parameters:
+  Environment:
+    Type: String
+    Default: staging
+  WebsiteBucketName:
+    Type: String
+  
+Resources:
+  WebSiteS3Bucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    Properties:
+      AccessControl: Private
+      CorsConfiguration:
+        CorsRules:
+        - AllowedHeaders: ['*']
+          AllowedMethods: [GET, DELETE, POST, PUT]
+          AllowedOrigins: ['*']
+          ExposedHeaders: [Date]
+          Id: ANYCORSRuleId
+          MaxAge: '3600'
+      WebsiteConfiguration:
+        IndexDocument: index.html
+        ErrorDocument: error.html
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: false
+        BlockPublicPolicy: false
+        IgnorePublicAcls: false
+        RestrictPublicBuckets: false
+      BucketName: !Ref WebsiteBucketName
+
+Outputs:
+  Region:
+    Description: AWS Deployment Region
+    Value: !Ref AWS::Region
+  StackId:
+    Description: AWS Deployment StackId
+    Value: !Ref AWS::StackId
+  WebsiteBucket:
+    Value: !Ref WebSiteS3Bucket
+  WebsiteURL:
+     Value: !Join ['', ['https://', !GetAtt [WebSiteS3Bucket, DomainName], "/index.html"]]
