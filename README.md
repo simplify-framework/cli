@@ -9,21 +9,24 @@
 
 ```bash
 ╓───────────────────────────────────────────────────────────────╖
-║              Simplify Framework - Version 0.1.40              ║
+║              Simplify Framework - Version 0.1.42              ║
 ╙───────────────────────────────────────────────────────────────╜
 simplify-cli init | deploy | destroy [options]
 
 Options:
-  --help          Show help                                            [boolean]
-  --version       Show version number                                  [boolean]
-  -c, --config    function configuration                     [string] [required]
-  -p, --policy    function policy to attach                  [string] [required]
-  -r, --role      function policy to attach                             [string]
-  -s, --source    function source to deploy                  [string] [required]
-  -e, --env       environment variable file                             [string]
-  -u, --update    force update function code                           [boolean]
-  -l, --layer     deploy source folder as layer                        [boolean]
-  -t, --template  Init nodejs or python template                        [string]
+  --help        Show help                                              [boolean]
+  --version     Show version number                                    [boolean]
+  --update      force update function code            [boolean] [default: false]
+  --publish     force publish with a version          [boolean] [default: false]
+  --layer       deploy source folder as layer         [boolean] [default: false]
+  --location    stack folder to deploy              [string] [default: "stacks"]
+  --stack-name  stack name to deploy                                    [string]
+  --template    Init nodejs or python template      [string] [default: "nodejs"]
+  -c, --config  function configuration                       [string] [required]
+  -p, --policy  function policy to attach                    [string] [required]
+  -r, --role    function policy to attach                               [string]
+  -s, --source  function source to deploy                    [string] [required]
+  -e, --env     environment variable file                               [string]
  ```
   
 ### Init your environment
