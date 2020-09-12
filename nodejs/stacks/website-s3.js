@@ -37,7 +37,7 @@ try {
             function processStackData(stackData) {
                 let outputData = {}
                 const publicFolder = path.join(__dirname, "public-html")
-                const outputConfig = path.join(config.OutputFolder, "config.json")
+                const outputConfig = path.join(config.OutputFolder, "stack-config.json")
                 stackData.Outputs.map(function (o) {
                     if (o.OutputKey == `WebsiteURL`) {
                         outputData.WebsiteURL = o.OutputValue
@@ -49,7 +49,7 @@ try {
                 })
                 if (fs.existsSync(outputConfig)) {
                     outputData = { ...outputData, ... JSON.parse(fs.readFileSync(outputConfig)) }
-                    fs.writeFileSync(path.join(publicFolder, "config.json"), JSON.stringify({
+                    fs.writeFileSync(path.join(publicFolder, "stack-config.json"), JSON.stringify({
                         ServerURL: outputData.HttpServerURL
                     }, null, 4))
                 }

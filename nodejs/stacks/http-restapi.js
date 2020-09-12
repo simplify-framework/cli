@@ -36,7 +36,7 @@ try {
         }).then(function (uploadInfo) {
             function processStackData(stackData) {
                 let outputData = {}
-                const outputConfig = path.join(config.OutputFolder, "config.json")
+                const outputConfig = path.join(config.OutputFolder, "stack-config.json")
                 stackData.Outputs.map(function (o) {
                     if (o.OutputKey == `RestAPIGatewayURL`) {
                         outputData.RestAPIGatewayURL = o.OutputValue
