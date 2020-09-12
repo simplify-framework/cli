@@ -3,6 +3,7 @@
 const path = require('path')
 const fs = require('fs')
 const simplify = require('simplify-sdk')
+const utilities = require('simplify-sdk/utilities')
 const provider = require('simplify-sdk/provider')
 var functionMeta = { lashHash256: null }
 
@@ -13,12 +14,12 @@ const deploy = function (options) {
     var policyDocument = simplify.getContentFile(path.resolve(policyFile || 'policy.json'))
     var assumeRoleDocument = simplify.getContentFile(path.resolve(roleFile || 'role.json'))
     if (!fs.existsSync(path.resolve(config.OutputFolder))) {
-        fs.mkdirSync(path.resolve(config.OutputFolder))
+        fs.mkdirSync(path.resolve(config.OutputFolder), { recursive: true })
     }
     if (fs.existsSync(path.resolve(config.OutputFolder, `${config.Function.FunctionName}.hash`))) {
         functionMeta.lashHash256 = fs.readFileSync(path.resolve(config.OutputFolder, `${config.Function.FunctionName}.hash`)).toString()
     }
-    provider.setConfig(config).then(_ => {
+    return provider.setConfig(config).then(_ => {
         const roleName = `${config.Function.FunctionName}Role`
         return simplify.createOrUpdateFunctionRole({
             adaptor: provider.getIAM(),
@@ -69,8 +70,14 @@ const deploy = function (options) {
                 let configInput = JSON.parse(fs.readFileSync(path.resolve(configFile || 'config.json')))
                 configInput.Function.Layers = data.Layers
                 fs.writeFileSync(path.resolve(configFile || 'config.json'), JSON.stringify(configInput, null, 4))
+<<<<<<< HEAD
             } catch (err) {
                 simplify.finishWithErrors(`DeployLayer`, err);
+=======
+            } catch(err) {
+                simplify.finishWithErrors(`DeployLayer`, err)
+                throw err
+>>>>>>> c848d9a4720fe9a25bc95c2a2c4022c1664f164a
             }
         } else {
             if (data && data.FunctionArn) {
@@ -98,7 +105,8 @@ const deploy = function (options) {
             }
         }
     }).catch(err => simplify.finishWithErrors(`UploadFunction-ERROR`, err)).catch(err => {
-        simplify.consoleWithErrors(`DeployFunction-ERROR`, err);
+        simplify.consoleWithErrors(`DeployFunction-ERROR`, err)
+        throw err
     })
 }
 
@@ -106,7 +114,7 @@ const destroy = function (options) {
     const { configFile, envFile, withFunctionLayer } = options
     require('dotenv').config({ path: path.resolve(envFile || '.env') })
     var config = simplify.getInputConfig(path.resolve(configFile || 'config.json'))
-    provider.setConfig(config).then(_ => {
+    return provider.setConfig(config).then(_ => {
         const roleName = `${config.Function.FunctionName}Role`
         return simplify.deleteFunctionRole({
             adaptor: provider.getIAM(),
@@ -128,7 +136,8 @@ const destroy = function (options) {
             simplify.consoleWithMessage(`DestroyFunction`, `Done. ${data.FunctionName}`)
         })
     }).catch(err => simplify.finishWithErrors(`DestroyFunction-ERROR`, err)).catch(err => {
-        simplify.consoleWithErrors(`DestroyFunction-ERROR`, err);
+        simplify.consoleWithErrors(`DestroyFunction-ERROR`, err)
+        throw err
     })
 }
 
@@ -141,6 +150,7 @@ var argv = require('yargs').usage('simplify-cli init | deploy | destroy [options
     .boolean('update').alias('u', 'update').describe('update', 'force update function code').default('update', false)
     .boolean('publish').describe('publish', 'force publish with a version').default('publish', false)
     .boolean('layer').alias('l', 'layer').describe('layer', 'deploy source folder as layer').default('layer', false)
+    .string('template').alias('t', 'template').describe('template', 'Init nodejs or python template').default('template', 'nodejs')
     .demandOption(['c', 'p', 's']).demandCommand(1).argv;
 
 var cmdOPS = (argv._[0] || 'deploy').toUpperCase()
@@ -162,22 +172,23 @@ if (cmdOPS === "DEPLOY") {
         withFunctionLayer: argv.layer
     })
 } else if (cmdOPS === "INIT") {
-    fs.writeFileSync(path.resolve(".env"), fs.readFileSync(path.join(__dirname, "init", "dotenv")))
-    fs.writeFileSync(path.resolve("config.json"), fs.readFileSync(path.join(__dirname, "init", "config.json")))
-    fs.writeFileSync(path.resolve("role.json"), fs.readFileSync(path.join(__dirname, "init", "role.json")))
-    fs.writeFileSync(path.resolve("policy.json"), fs.readFileSync(path.join(__dirname, "init", "policy.json")))
-    if (!fs.existsSync(path.resolve("src"))) {
-        fs.mkdirSync(path.resolve("src"), { recursive: true })
-    }
-    fs.writeFileSync(path.resolve("src", "index.js"), fs.readFileSync(path.join(__dirname, "init", "src", "index.js")))
-    if (!fs.existsSync(path.resolve("examples", "html"))) {
-        fs.mkdirSync(path.resolve("examples", "html"), { recursive: true })
-    }
-    fs.writeFileSync(path.resolve("examples", "application.yaml"), fs.readFileSync(path.join(__dirname, "init", "examples", "application.yaml")))
-    fs.writeFileSync(path.resolve("examples", "deployment.js"), fs.readFileSync(path.join(__dirname, "init", "examples", "deployment.js")))
-    fs.writeFileSync(path.resolve("examples", "html", "index.html"), fs.readFileSync(path.join(__dirname, "init", "examples", "html", "index.html")))
-
-    simplify.finishWithMessage(`Initialized`, `${__dirname}`)
+    const inputDirectory = path.join(__dirname, argv.template)
+    utilities.getFilesInDirectory(inputDirectory).then(function (files) {
+        files.forEach(function (filePath) {
+            var fileName = filePath.replace(inputDirectory, '').replace(/^\/+/, '').replace(/^\\+/, '')
+            fs.readFile(filePath, function (err, data) {
+                if (err) reject(err)
+                else {
+                    const pathDirName = path.dirname(path.resolve(fileName))
+                    if (!fs.existsSync(pathDirName)) {
+                        fs.mkdirSync(pathDirName, { recursive: true })
+                    }
+                    fs.writeFileSync(path.resolve(fileName.replace('dotenv', '.env')), fs.readFileSync(filePath))
+                }
+            })
+        })
+    })
+    simplify.finishWithMessage(`Initialized`, `${path.resolve('.')}`)
 }
 
 module.exports = { deployFunction: deploy, destroyFunction: destroy }

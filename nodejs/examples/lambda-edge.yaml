@@ -1,0 +1,38 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Configuration for Lambda@Edge to facilitate deployments and further updates
+Parameters:
+  Environment:
+    Type: String
+  FunctionArnVersion:
+    Type: String
+
+Resources:
+    CFDistribution:
+        Type: AWS::CloudFront::Distribution
+        Properties:
+          DistributionConfig:
+            Enabled: 'true'
+            Comment: !Sub 'CloudFront trigger for Lambda@Edge'
+            Origins:
+              - Id: LambdaEdgeOrigin
+                DomainName: aws.amazon.com
+                CustomOriginConfig:
+                  HTTPPort: 80
+                  OriginProtocolPolicy: match-viewer
+            DefaultCacheBehavior:
+              TargetOriginId: LambdaEdgeOrigin
+              LambdaFunctionAssociations:
+                - EventType: origin-request
+                  LambdaFunctionARN: !Ref FunctionArnVersion
+              ForwardedValues:
+                QueryString: 'false'
+                Headers:
+                  - Origin
+                Cookies:
+                  Forward: none
+              ViewerProtocolPolicy: allow-all
+
+Outputs:
+    CFDistribution: 
+      Description: Cloudfront Distribution Domain Name
+      Value: !GetAtt CFDistribution.DomainName
