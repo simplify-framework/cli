@@ -2,6 +2,7 @@
 'use strict';
 const path = require('path')
 const fs = require('fs')
+const { yamlParse } = require('yaml-cfn');
 const simplify = require('simplify-sdk')
 const utilities = require('simplify-sdk/utilities')
 const provider = require('simplify-sdk/provider')
@@ -23,23 +24,18 @@ const deployStack = function (options) {
     require('dotenv').config({ path: path.resolve(envFile || '.env') })
     var config = simplify.getInputConfig(path.resolve(configFile || 'config.json'))
     const stackConfigFile = path.resolve(config.OutputFolder, 'stack-config.json')
+    const stackYamlFile = path.resolve(configStackFolder, `${configStackName}.yaml`)
     config.FunctionName = `${process.env.FUNCTION_NAME}-${process.env.DEPLOYMENT_ENV}`
     provider.setConfig(config).then(function () {
         simplify.uploadLocalFile({
             adaptor: provider.getStorage(),
-            ...{ bucketKey: config.Bucket.Key, inputLocalFile: path.resolve(configStackFolder, `${configStackName}.yaml`) }
+            ...{ bucketKey: config.Bucket.Key, inputLocalFile: stackYamlFile }
         }).then(function (uploadInfo) {
             function processStackData(stackData) {
                 let outputData = {}
                 outputData[configStackName] = {}
                 stackData.Outputs.map(function (o) {
-                    if (o.OutputKey == `Endpoint`) {
-                        outputData[configStackName].Endpoint = o.OutputValue
-                    } else if (o.OutputKey == `Region`) {
-                        outputData[configStackName].Region = o.OutputValue
-                    } else if (o.OutputKey == `StackId`) {
-                        outputData[configStackName].StackId = o.OutputValue
-                    }
+                    outputData[configStackName][o.OutputKey] = o.OutputValue
                 })
                 if (fs.existsSync(stackConfigFile)) {
                     outputData = { ...outputData, ...JSON.parse(fs.readFileSync(stackConfigFile)) }
@@ -52,36 +48,53 @@ const deployStack = function (options) {
                 simplify.finishWithMessage(`${configStackName}`, `${outputData[configStackName].Endpoint}`)
                 return outputData
             }
-            var TemplateURL = uploadInfo.Location
-            var parameters = {
-                Environment: process.env.DEPLOYMENT_ENV,
-                FunctionName: config.FunctionName,
-                FunctionARN: getFunctionArn(config.FunctionName, config.OutputFolder)
+            function createStack(stackTemplate, parameters, stackPluginModule) {
+                simplify.createOrUpdateStackOnComplete({
+                    adaptor: provider.getResource(),
+                    ...{
+                        stackName: `${process.env.PROJECT_NAME || config.FunctionName}-${configStackName}`,
+                        stackParameters: {
+                            Environment: `${process.env.DEPLOYMENT_ENV}`,
+                            ...parameters
+                        },
+                        stackTemplate: stackTemplate
+                    }
+                }).then(function (stackData) {
+                    if (stackPluginModule && typeof stackPluginModule.postCreation === 'function') {
+                        stackPluginModule.postCreation({ simplify, provider, config }, configStackName, stackData).then(result => processStackData(result))
+                    } else {
+                        simplify.consoleWithMessage(`${configStackName}`, `Not found extension - ${path.resolve(configStackFolder, `${configStackName}.js`)}`)
+                        processStackData(stackData)
+                    }
+                }).catch(error => {
+                    simplify.finishWithErrors(`${opName}-Create${configStackName}`, getErrorMessage(error))
+                })
             }
-            var stackPluginModule = {}
-            if (fs.existsSync(path.resolve(configStackFolder, `${configStackName}.js`))) {
-                stackPluginModule = require(path.resolve(configStackFolder, `${configStackName}`))
-            }
-            simplify.createOrUpdateStackOnComplete({
-                adaptor: provider.getResource(),
-                ...{
-                    stackName: `${process.env.PROJECT_NAME || config.FunctionName}-${configStackName}`,
-                    stackParameters: {
-                        Environment: `${process.env.DEPLOYMENT_ENV}`,
-                        ...(typeof stackPluginModule.getParameters === 'function' ? stackPluginModule.getParameters(parameters, config) : parameters)
-                    },
-                    stackTemplate: TemplateURL
+            var templateURL = uploadInfo.Location
+            try {
+                const docYaml = yamlParse(fs.readFileSync(stackYamlFile));
+                var parameters = {
+                    Environment: process.env.DEPLOYMENT_ENV,
+                    FunctionName: config.FunctionName,
+                    FunctionARN: getFunctionArn(config.FunctionName, config.OutputFolder)
                 }
-            }).then(function (stackData) {
-                if (stackPluginModule && typeof stackPluginModule.postCreation === 'function') {
-                    stackPluginModule.postCreation({ simplify, provider, config }, stackData, configStackName).then(result => processStackData(result))
+                Object.keys(docYaml.Parameters).map(param => {
+                    docYaml.Parameters[param] = parameters[param]
+                })
+                var stackPluginModule = {}
+                if (fs.existsSync(path.resolve(configStackFolder, `${configStackName}.js`))) {
+                    stackPluginModule = require(path.resolve(configStackFolder, `${configStackName}`))
+                }
+                if (typeof stackPluginModule.preCreation === 'function') {
+                    stackPluginModule.preCreation({ simplify, provider, config }, configStackName, docYaml.Parameters).then(parameterResult => {
+                        createStack(templateURL, parameterResult, stackPluginModule)
+                    })
                 } else {
-                    simplify.consoleWithMessage(`${configStackName}`, `Not found extension - ${path.resolve(configStackFolder, `${configStackName}.js`)}`)
-                    processStackData(stackData)
+                    createStack(templateURL, docYaml.Parameters, stackPluginModule)
                 }
-            }).catch(error => {
-                simplify.finishWithErrors(`${opName}-Create${configStackName}`, getErrorMessage(error))
-            })
+            } catch (error) {
+                simplify.finishWithErrors(`${opName}-LoadYAMLResource:`, getErrorMessage(error))
+            }  
         })
     })
 }
@@ -91,13 +104,9 @@ const destroyStack = function (options) {
     require('dotenv').config({ path: path.resolve(envFile || '.env') })
     var config = simplify.getInputConfig(path.resolve(configFile || 'config.json'))
     const stackConfigFile = path.resolve(config.OutputFolder, 'stack-config.json')
-    const stackResources = JSON.parse(fs.readFileSync(stackConfigFile))
+    const stackList = JSON.parse(fs.readFileSync(stackConfigFile))
     provider.setConfig(config).then(function () {
-        function deleteByStackName(stackName) {
-            var stackPluginModule = {}
-            if (fs.existsSync(path.resolve(configStackFolder, `${stackName}.js`))) {
-                stackPluginModule = require(path.resolve(configStackFolder, `${stackName}`))
-            }
+        function deleteStack (stackName, stackPluginModule) {
             simplify.consoleWithMessage(`${opName}-CleanupResource`, `StackName - (${stackName})`)
             simplify.deleteStackOnComplete({
                 adaptor: provider.getResource(),
@@ -106,24 +115,39 @@ const destroyStack = function (options) {
                 }
             }).then(function (stackData) {
                 if (stackPluginModule && typeof stackPluginModule.postCleanup === 'function') {
-                    stackPluginModule.postCleanup({ simplify, provider, config }, stackData, stackName, stackResources).then(result => {
-                        delete stackResources[stackName]
-                        fs.writeFileSync(stackConfigFile, JSON.stringify(stackResources, null, 4))
+                    stackPluginModule.postCleanup({ simplify, provider, config }, stackName, stackList, stackData).then(result => {
+                        delete stackList[stackName]
+                        fs.writeFileSync(stackConfigFile, JSON.stringify(stackList, null, 4))
                         simplify.finishWithMessage(`${stackName}`, `Done. Cleanned with extension - ${path.resolve(configStackFolder, `${stackName}.js`)}`)
                     }).catch(function (error) {
                         simplify.finishWithErrors(`${opName}-CleanupResource:`, getErrorMessage(error))
                     })
                 } else {
-                    delete stackResources[stackName]
-                    fs.writeFileSync(stackConfigFile, JSON.stringify(stackResources, null, 4))
+                    delete stackList[stackName]
+                    fs.writeFileSync(stackConfigFile, JSON.stringify(stackList, null, 4))
                     simplify.finishWithMessage(`${stackName}`, `Done. No extension found - ${path.resolve(configStackFolder, `${stackName}.js`)}`)
                 }
             }).catch(function (error) {
                 simplify.finishWithErrors(`${opName}-CleanupResource:`, getErrorMessage(error))
             })
         }
+        function deleteByStackName(stackName) {
+            var stackPluginModule = {}
+            if (fs.existsSync(path.resolve(configStackFolder, `${stackName}.js`))) {
+                stackPluginModule = require(path.resolve(configStackFolder, `${stackName}`))
+            }
+            if (stackPluginModule && typeof stackPluginModule.preCleanup === 'function') {
+                stackPluginModule.preCleanup({ simplify, provider, config }, stackName, stackList).then(stackName => {
+                    deleteStack(stackName, stackPluginModule)
+                }).catch(function (error) {
+                    simplify.finishWithErrors(`${opName}-PreCleanup`, getErrorMessage(error))
+                })
+            } else {
+                deleteStack(stackName, stackPluginModule)
+            }
+        }
         if (configStackName == "*" && fs.existsSync(stackConfigFile)) {
-            Object.keys(stackResources).forEach(function (stackName) {
+            Object.keys(stackList).forEach(function (stackName) {
                 deleteByStackName(stackName)
             })
         } else {

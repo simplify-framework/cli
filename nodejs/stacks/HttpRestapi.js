@@ -3,14 +3,18 @@ const path = require('path')
 const fs = require('fs')
 const opName = `Extension`
 module.exports = {
-    getParameters: function(parameters, config) {
-        return parameters
+    preCreation: function(adaptor, stackName, stackParameters) {
+        return Promise.resolve(stackParameters)
     },
-    postCreation: function(adaptor, stackData, stackName) {
+    postCreation: function(adaptor, stackName, stackData) {
         const { simplify, provider, config } = adaptor
         return Promise.resolve(stackData)
     },
-    postCleanup: function(adaptor, stackData, stackName, stackResult) {
+    preCleanup: function(adaptor, stackName, stackList) {
+        const { simplify, provider, config } = adaptor
+        return Promise.resolve(stackName)
+    },
+    postCleanup: function(adaptor, stackName, stackList, stackData) {
         const { simplify, provider, config } = adaptor
         return Promise.resolve(stackData)
     }

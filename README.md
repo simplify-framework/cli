@@ -71,22 +71,22 @@ const path = require('path')
 const fs = require('fs')
 const opName = `Extension`
 module.exports = {
-    /** reformat the ClooudFormation StackParameters = { Environmemt, ...} */
-    getParameters: function(parameters, config) {
-        return {
-            WebsiteBucketName: process.env.WEBSITE_BUCKET
-        }
+    /** Called before stack creation, return StackParameters = { Environmemt, ...} */
+    preCreation: function(adaptor, stackName, stackParameters) {
+        return Promise.resolve(stackParameters)
     },
     /** Called after the `${location}/${stack-name}.yaml` was deployed */
-    postCreation: function(adaptor, stackData, stackName) {
+    postCreation: function(adaptor, stackName, stackData) {
         const { simplify, provider, config } = adaptor
-        const publicFolder = path.join(__dirname, "public-html")
-        const outputConfig = path.join(config.OutputFolder, "website-config.json")
-        simplify.uploadLocalDirectory({}).then(result => ...)
         return Promise.resolve(stackData)
     },
+    /** Called before stack destruction, return { stackName } */
+    preCleanup: function(adaptor, stackName, stackList) {
+        const { simplify, provider, config } = adaptor
+        return Promise.resolve(stackName)
+    },
     /** Called after the `${location}/${stack-name}.yaml` was destroyed  */
-    postCleanup: function(adaptor, stackData, stackName, stackResult) {
+    postCleanup: function(adaptor, stackName, stackList, stackData) {
         const { simplify, provider, config } = adaptor
         return Promise.resolve(stackData)
     }

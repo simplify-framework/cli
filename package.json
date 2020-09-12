@@ -24,7 +24,8 @@
   "homepage": "https://github.com/simplify-framework/serverless#readme",
   "dependencies": {
     "dotenv": "^8.2.0",
-    "simplify-sdk": "^0.1.43",
+    "simplify-sdk": "^0.1.44",
+    "yaml-cfn": "^0.2.3",
     "yargs": "^15.4.1"
   }
 }
