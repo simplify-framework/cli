@@ -8,9 +8,10 @@ Parameters:
 
 Resources:
   PinpointAnalytics:
+    DependsOn: CognitoUserPool
     Type: AWS::Pinpoint::App
-    Properties: 
-      Name: !Sub ${AWS::StackName}
+    Properties:
+      Name: !Sub ${AWS::StackName}-${CognitoUserPool}
   # Creates a role that allows Cognito to send SNS messages
   SNSRoleForSMS:
     Type: 'AWS::IAM::Role'

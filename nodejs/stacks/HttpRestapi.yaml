@@ -12,21 +12,19 @@ Parameters:
     Type: String
     Default: eu-central-1_xxxxxxxx
 Resources:
-  HttpApiServer:
+  HttpApiGateway:
     Type: AWS::ApiGateway::RestApi
     Properties:
-      Description: 'HttpApiServer - API Gateway'
+      Description: 'HttpApiGateway - API Gateway'
       Name:
         Fn::Join:
           - "-"
           - - !Ref AWS::StackName
-            - !Ref Environment
-            - HttpApiServer
       Body:
         swagger: '2.0'
         info:
           version: '2017-04-20T04:08:08Z'
-          title: HttpApiServer        
+          title: HttpApiGateway        
         host:
           Fn::Join:
           - ''
@@ -213,22 +211,22 @@ Resources:
       FailOnWarnings: true
 
   HttpApiServerAPIGateWayDeployment:
-    DependsOn: HttpApiServer
+    DependsOn: HttpApiGateway
     Type: AWS::ApiGateway::Deployment
     Properties:
-      Description: The Development stage deployment of HttpApiServer API.
+      Description: The Development stage deployment of HttpApiGateway API.
       StageName: !Ref Environment
       RestApiId:
-        !Ref HttpApiServer
+        !Ref HttpApiGateway
 
   HttpApiServerAPIGateWayUsagePlan:
     DependsOn: HttpApiServerAPIGateWayDeployment
     Type: AWS::ApiGateway::UsagePlan
     Properties:
-      Description: The quota limits of HttpApiServer API.
-      UsagePlanName: HttpApiServer-DefaultPlan
+      Description: The quota limits of HttpApiGateway API.
+      UsagePlanName: HttpApiGateway-DefaultPlan
       ApiStages:
-      - ApiId: !Ref HttpApiServer
+      - ApiId: !Ref HttpApiGateway
         Stage: !Ref Environment
       Throttle:
         BurstLimit: 100
@@ -243,9 +241,9 @@ Resources:
     Properties:
       Enabled: true
       StageKeys: 
-        - RestApiId: !Ref HttpApiServer
+        - RestApiId: !Ref HttpApiGateway
           StageName: !Ref Environment
-      Value: HttpApiServer-55e39faadd193384379f1b59f399bf1068f05e48
+      Value: HttpApiGateway-55e39faadd193384379f1b59f399bf1068f05e48
   
   HttpApiServerAPIGateWayUsagePlanKey:
     DependsOn: HttpApiServerAPIGateWayApiKey
@@ -269,7 +267,7 @@ Resources:
           - ":"
           - !Ref AWS::AccountId
           - ":"
-          - !Ref HttpApiServer
+          - !Ref HttpApiGateway
           - "/*/*/*"
 
   HttpApiServerFunctionLogGroup:
@@ -288,13 +286,13 @@ Outputs:
   StackId:
     Value: !Ref AWS::StackId
   GatewayId:
-    Value: !Ref HttpApiServer
+    Value: !Ref HttpApiGateway
   Endpoint:
     Value:
       Fn::Join:
       - ''
       - - https://
-        - !Ref HttpApiServer
+        - !Ref HttpApiGateway
         - ".execute-api."
         - !Ref AWS::Region
         - ".amazonaws.com/"
