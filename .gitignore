@@ -3,4 +3,5 @@ node_modules/
 .env
 .hash
 .output
+python/layer/
 package-lock.json
