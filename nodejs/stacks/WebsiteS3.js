@@ -12,7 +12,7 @@ module.exports = {
     postCreation: function(adaptor, stackName, stackData) {
         const { simplify, provider, config } = adaptor
         const publicFolder = path.join(__dirname, "public-html")
-        const outputConfig = path.join(config.OutputFolder, "website-config.json")
+        const outputConfig = path.join(config.OutputFolder, "WebsiteConfig.json")
         return new Promise((resolve, reject) => {
             simplify.uploadLocalDirectory({
                 adaptor: provider.getStorage(),

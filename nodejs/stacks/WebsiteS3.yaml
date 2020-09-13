@@ -38,5 +38,7 @@ Outputs:
   StackId:
     Description: AWS Deployment StackId
     Value: !Ref AWS::StackId
-  Endpoint:
+  BucketDomain:
+    Value: !GetAtt [WebSiteS3Bucket, DomainName]
+  BucketEndpoint:
      Value: !Join ['', ['https://', !GetAtt [WebSiteS3Bucket, DomainName], "/index.html"]]
