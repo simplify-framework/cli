@@ -1,0 +1,267 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Cognito UserPool Authentication Stack
+Parameters:
+  Environment:
+    Type: String
+  HttpRestapiGatewayId:
+    Type: String
+
+Resources:
+  PinpointAnalytics:
+    Type: AWS::Pinpoint::App
+    Properties: 
+      Name: !Sub ${AWS::StackName}
+  # Creates a role that allows Cognito to send SNS messages
+  SNSRoleForSMS:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument: 
+        Version: '2012-10-17'
+        Statement:
+          - Effect: 'Allow'
+            Principal: 
+              Service: 
+                - 'cognito-idp.amazonaws.com'
+            Action: 
+              - 'sts:AssumeRole'
+      Policies:
+        - PolicyName: 'CognitoSNSPolicy'
+          PolicyDocument: 
+            Version: '2012-10-17'
+            Statement: 
+              - Effect: 'Allow'
+                Action: 'sns:publish'
+                Resource: '*'
+
+  # Creates a user pool in cognito for your app to auth against
+  # This example requires MFA and validates the phone number to use as MFA
+  # Other fields can be added to the schema
+  CognitoUserPool:
+    Type: 'AWS::Cognito::UserPool'
+    Properties:
+      AutoVerifiedAttributes:
+        - phone_number
+      MfaConfiguration: 'ON'
+      SmsConfiguration:
+        ExternalId: !Sub ${AWS::StackName}-external
+        SnsCallerArn: !GetAtt SNSRoleForSMS.Arn
+      Schema:
+        - Name: name
+          AttributeDataType: String
+          Mutable: true
+          Required: true
+        - Name: email
+          AttributeDataType: String
+          Mutable: false
+          Required: true
+        - Name: phone_number
+          AttributeDataType: String
+          Mutable: false
+          Required: true
+
+  # Creates a User Pool Client to be used by the identity pool
+  UserPoolClient:
+    Type: 'AWS::Cognito::UserPoolClient'
+    Properties:
+      ClientName: !Sub ${AWS::StackName}-client
+      GenerateSecret: false
+      UserPoolId: !Ref CognitoUserPool
+  
+  # Creates a federeated Identity pool
+  CognitoIdentityPool:
+    Type: 'AWS::Cognito::IdentityPool'
+    Properties:
+      IdentityPoolName: !Sub ${AWS::StackName}Identity
+      AllowUnauthenticatedIdentities: true
+      CognitoIdentityProviders: 
+        - ClientId: !Ref UserPoolClient
+          ProviderName: !GetAtt CognitoUserPool.ProviderName
+
+  # Create a role for unauthorized acces to AWS resources. Very limited access. Only allows users in the previously created Identity Pool
+  CognitoUnAuthorizedRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument: 
+        Version: '2012-10-17'
+        Statement:
+          - Effect: 'Allow'
+            Principal: 
+              Federated: 'cognito-identity.amazonaws.com'
+            Action: 
+              - 'sts:AssumeRoleWithWebIdentity'
+            Condition:
+              'StringEquals': 
+                'cognito-identity.amazonaws.com:aud': !Ref CognitoIdentityPool
+              'ForAnyValue:StringLike':
+                'cognito-identity.amazonaws.com:amr': unauthenticated
+      Policies:
+        - PolicyName: CognitoUnauthorizedRolePolicy
+          PolicyDocument: 
+            Version: '2012-10-17'
+            Statement: 
+              - Effect: 'Allow'
+                Action:
+                - mobileanalytics:PutEvents
+                Resource:
+                  - !Sub 'arn:aws:mobiletargeting:${AWS::Region}:${AWS::AccountId}:apps/${PinpointAnalytics}'
+                  - !Sub 'arn:aws:mobiletargeting:${AWS::Region}:${AWS::AccountId}:apps/${PinpointAnalytics}/*'
+
+  # Create a role for authorized acces to AWS resources. Control what your user can access. This example only allows Lambda invokation
+  # Only allows users in the previously created Identity Pool
+  CognitoAuthorizedRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument: 
+        Version: '2012-10-17'
+        Statement:
+          - Effect: 'Allow'
+            Principal: 
+              Federated: 'cognito-identity.amazonaws.com'
+            Action: 
+              - 'sts:AssumeRoleWithWebIdentity'
+            Condition:
+              'StringEquals':
+                'cognito-identity.amazonaws.com:aud': !Ref CognitoIdentityPool
+              'ForAnyValue:StringLike':
+                'cognito-identity.amazonaws.com:amr': authenticated
+      Policies:
+        - PolicyName: CognitoAuthorizedRolePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement: 
+              - Effect: 'Allow'
+                Action:
+                - mobileanalytics:PutEvents
+                Resource:
+                  - !Sub 'arn:aws:mobiletargeting:${AWS::Region}:${AWS::AccountId}:apps/${PinpointAnalytics}'
+                  - !Sub 'arn:aws:mobiletargeting:${AWS::Region}:${AWS::AccountId}:apps/${PinpointAnalytics}/*'
+              - Effect: Allow
+                Action:
+                - execute-api:Invoke
+                Resource:
+                - !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpRestapiGatewayId}/${Environment}/*'
+
+  # A logged-in Cognito user, who is not in a 'pending' (invite or request) state, is 'registered'.
+  CognitoUserRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Federated: cognito-identity.amazonaws.com
+          Action: sts:AssumeRoleWithWebIdentity
+          Condition:
+            StringEquals:
+              'cognito-identity.amazonaws.com:aud': !Ref CognitoIdentityPool
+            'ForAnyValue:StringLike':
+              'cognito-identity.amazonaws.com:amr': authenticated
+      Policies:
+      - PolicyName: CognitoUserRole
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - mobileanalytics:PutEvents
+            Resource:
+              - !Sub 'arn:aws:mobiletargeting:${AWS::Region}:${AWS::AccountId}:apps/${PinpointAnalytics}'
+              - !Sub 'arn:aws:mobiletargeting:${AWS::Region}:${AWS::AccountId}:apps/${PinpointAnalytics}/*'
+          - Effect: Allow
+            Action:
+            - execute-api:Invoke
+            Resource:
+            - !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpRestapiGatewayId}/${Environment}/*'
+          - Effect: Deny
+            Action:
+            - execute-api:Invoke
+            Resource:
+            - !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpRestapiGatewayId}/${Environment}/*/restrict/*'
+      Path: '/'
+
+  CognitoOperatorRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Federated: cognito-identity.amazonaws.com
+          Action: sts:AssumeRoleWithWebIdentity
+          Condition:
+            StringEquals:
+              'cognito-identity.amazonaws.com:aud': !Ref CognitoIdentityPool
+            'ForAnyValue:StringLike':
+              'cognito-identity.amazonaws.com:amr': authenticated
+      Policies:
+      - PolicyName: CognitoOperatorRole
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - mobileanalytics:PutEvents
+            Resource:
+              - !Sub 'arn:aws:mobiletargeting:${AWS::Region}:${AWS::AccountId}:apps/${PinpointAnalytics}'
+              - !Sub 'arn:aws:mobiletargeting:${AWS::Region}:${AWS::AccountId}:apps/${PinpointAnalytics}/*'
+          - Effect: Allow
+            Action:
+            - execute-api:Invoke
+            Resource: !Join
+              - ''
+              - - 'arn:aws:execute-api:'
+                - !Ref 'AWS::Region'
+                - ':'
+                - !Ref 'AWS::AccountId'
+                - ':'
+                - !Ref HttpRestapiGatewayId
+                - '/'
+                - !Ref Environment
+                - /*/*
+
+  CognitoOperatorGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Description: 'Operator users of the developer portal'
+      GroupName: 'OperatorGroup'
+      # the role we assume is the role associated with the lowest-precedence users group
+      # since restricted group has a precedence of 0, it takes priority
+      RoleArn: !GetAtt CognitoOperatorRole.Arn
+      UserPoolId: !Ref CognitoUserPool
+      Precedence: 0
+
+  CognitoUserGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Description: 'Regitered users in the developer portal'
+      GroupName: 'UserGroup'
+      RoleArn: !GetAtt CognitoUserRole.Arn
+      UserPoolId: !Ref CognitoUserPool
+      Precedence: 1
+
+  # Assigns the roles to the Identity Pool
+  IdentityPoolRoleMapping:
+    Type: 'AWS::Cognito::IdentityPoolRoleAttachment'
+    Properties:
+      IdentityPoolId: !Ref CognitoIdentityPool
+      Roles:
+        authenticated: !GetAtt CognitoAuthorizedRole.Arn
+        unauthenticated: !GetAtt CognitoUnAuthorizedRole.Arn
+
+Outputs:
+  Region:
+    Value: !Ref AWS::Region
+  StackId:
+    Value: !Ref AWS::StackId
+  UserPoolId:
+    Value: !Ref CognitoUserPool
+  UserPoolClientId:
+    Value: !Ref UserPoolClient
+  IdentityPoolId:
+    Value: !Ref CognitoIdentityPool

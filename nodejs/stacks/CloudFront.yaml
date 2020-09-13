@@ -66,11 +66,8 @@ Resources:
 
 Outputs:
   Region:
-    Description: Cloudfront Deployment Region
     Value: !Ref AWS::Region
   StackId:
-    Description: Cloudfront Deployment StackId
     Value: !Ref AWS::StackId
   Endpoint:
     Value: !GetAtt [CFDistribution, DomainName]
-    Description: Endpoint for Cloudfront distribution

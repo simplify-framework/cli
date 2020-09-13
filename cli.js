@@ -29,7 +29,7 @@ const deployStack = function (options) {
         simplify.finishWithErrors(`${opName}-CheckTemplate`, `${stackYamlFile} not found.`)
     }
     config.FunctionName = `${process.env.FUNCTION_NAME}-${process.env.DEPLOYMENT_ENV}`
-    const stackFullName = `${process.env.PROJECT_NAME || config.FunctionName}-${configStackName}`
+    const stackFullName = `${process.env.PROJECT_NAME || config.FunctionName}-${configStackName}-${process.env.DEPLOYMENT_ENV}`
     provider.setConfig(config).then(function () {
         simplify.uploadLocalFile({
             adaptor: provider.getStorage(),
@@ -151,7 +151,7 @@ const destroyStack = function (options) {
     const stackList = fs.existsSync(stackConfigFile) ? JSON.parse(fs.readFileSync(stackConfigFile)) : {}
     provider.setConfig(config).then(function () {
         function deleteStack (stackName, stackPluginModule) {
-            const stackFullName = `${process.env.PROJECT_NAME || config.FunctionName}-${stackName}`
+            const stackFullName = `${process.env.PROJECT_NAME || config.FunctionName}-${stackName}-${process.env.DEPLOYMENT_ENV}`
             simplify.consoleWithMessage(`${opName}-CleanupResource`, `StackName - (${stackFullName})`)
             simplify.deleteStackOnComplete({
                 adaptor: provider.getResource(),

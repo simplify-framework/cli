@@ -28,11 +28,8 @@ Resources:
 
 Outputs:
   Region:
-    Description: AWS Deployment Region
     Value: !Ref AWS::Region
   StackId:
-    Description: AWS Deployment StackId
     Value: !Ref AWS::StackId
   Endpoint:
-    Description: CloudWatch Scheduled EventRule ARN
     Value: !GetAtt CloudWatchScheduledRule.Arn

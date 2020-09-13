@@ -8,7 +8,9 @@ Parameters:
     Type: String
   FunctionARN:
     Type: String
-  
+  CognitoUserPoolId:
+    Type: String
+    Default: eu-central-1_xxxxxxxx
 Resources:
   HttpApiServer:
     Type: AWS::ApiGateway::RestApi
@@ -89,7 +91,7 @@ Resources:
                 required: true
                 type: "string"
               security:
-              - {}
+                - CognitoAuthorizer: []
               responses:
                 '200':
                   description: 200 response
@@ -111,6 +113,67 @@ Resources:
                 passthroughBehavior: when_no_match
                 httpMethod: POST
                 type: aws_proxy
+          # /user/{proxy+}:
+          #   options:
+          #     consumes:
+          #     - application/json
+          #     produces:
+          #     - application/json
+          #     responses:
+          #       '200':
+          #         description: 200 response
+          #         headers:
+          #           Access-Control-Allow-Origin:
+          #             type: string
+          #           Access-Control-Allow-Methods:
+          #             type: string
+          #           Access-Control-Allow-Headers:
+          #             type: string
+          #     x-amazon-apigateway-integration:
+          #       responses:
+          #         default:
+          #           statusCode: '200'
+          #           responseParameters:
+          #             method.response.header.Access-Control-Allow-Methods: "'DELETE,GET,HEAD,OPTIONS,PATCH,POST,PUT'"
+          #             method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'"
+          #             method.response.header.Access-Control-Allow-Origin: "'*'"
+          #       requestTemplates:
+          #         application/json: '{"statusCode": 200}'
+          #       passthroughBehavior: when_no_match
+          #       type: mock
+          #   post:
+          #     consumes:
+          #     - application/json
+          #     produces:
+          #     - application/json
+          #     parameters:
+          #     - name: "proxy"
+          #       in: "path"
+          #       required: true
+          #       type: "string"
+          #     security:
+          #     - CognitoAuthorizer: []
+          #     responses:
+          #       '200':
+          #         description: 200 response
+          #         schema:
+          #           "$ref": "#/definitions/ResponseSchema"                                    
+          #     x-amazon-apigateway-request-validator: Passthrough
+          #     x-amazon-apigateway-integration:                
+          #       responses:
+          #         default:
+          #           statusCode: '200'                
+          #       uri:
+          #         Fn::Join:
+          #         - ''
+          #         - - 'arn:aws:apigateway:'
+          #           - !Ref AWS::Region
+          #           - ":lambda:path/2015-03-31/functions/"
+          #           - !Ref FunctionARN
+          #           - "/invocations"                
+          #       passthroughBehavior: when_no_match
+          #       httpMethod: POST
+          #       type: aws_proxy    
         securityDefinitions:
           sigv4:
             type: apiKey
@@ -121,6 +184,15 @@ Resources:
             type: apiKey
             name: x-api-key
             in: header
+          CognitoAuthorizer:
+            type: apiKey
+            name: Authorization
+            in: header
+            x-amazon-apigateway-authtype: cognito_user_pools
+            x-amazon-apigateway-authorizer:
+              type: cognito_user_pools
+              providerARNs:
+              - !Sub "arn:aws:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${CognitoUserPoolId}"
         definitions:
           RequestSchema:
             type: object
@@ -212,13 +284,12 @@ Resources:
 
 Outputs:
   Region:
-    Description: AWS Deployment Region
     Value: !Ref AWS::Region
   StackId:
-    Description: AWS Deployment StackId
     Value: !Ref AWS::StackId
+  GatewayId:
+    Value: !Ref HttpApiServer
   Endpoint:
-    Description: Root URL of the API gateway
     Value:
       Fn::Join:
       - ''
