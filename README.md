@@ -72,7 +72,7 @@ const fs = require('fs')
 const opName = `Extension`
 module.exports = {
     /** Called before stack creation, return StackParameters = { Environmemt, ...} */
-    preCreation: function(adaptor, stackName, stackParameters) {
+    preCreation: function(adaptor, stackName, mappedParameters, stackYAML, stackInputs) {
         return Promise.resolve(stackParameters)
     },
     /** Called after the `${location}/${stack-name}.yaml` was deployed */

@@ -8,6 +8,11 @@ const utilities = require('simplify-sdk/utilities')
 const provider = require('simplify-sdk/provider')
 var functionMeta = { lashHash256: null }
 const opName = `executeCLI`
+const CBEGIN = '\x1b[32m'
+const CERROR = '\x1b[31m'
+const CNOTIF = '\x1b[33m'
+const CRESET = '\x1b[0m'
+const CDONE = '\x1b[37m'
 
 const getFunctionArn = function (functionName, locationFolder) {
     const outputFile = path.resolve(locationFolder, `${functionName}.json`)
@@ -15,13 +20,16 @@ const getFunctionArn = function (functionName, locationFolder) {
     return outputData.data.FunctionArn
 }
 
-const getErrorMessage = function(error) {
+const getErrorMessage = function (error) {
     return error.message ? error.message : JSON.stringify(error)
 }
 
 const deployStack = function (options) {
     const { configFile, envFile, configStackFolder, configStackName } = options
-    require('dotenv').config({ path: path.resolve(envFile || '.env') })
+    const envFilePath = path.resolve(envFile || '.env')
+    if (fs.existsSync(envFilePath)) {
+        require('dotenv').config({ path: envFilePath })
+    }
     var config = simplify.getInputConfig(path.resolve(configFile || 'config.json'))
     const stackConfigFile = path.resolve(config.OutputFolder, 'StackConfig.json')
     const stackYamlFile = path.resolve(configStackFolder, `${configStackName}.yaml`)
@@ -93,12 +101,12 @@ const deployStack = function (options) {
                     if (!resultParameters[paramName]) {
                         if (!resultErrors) resultErrors = []
                         resultErrors.push({
-                            name : paramName,
+                            name: paramName,
                             type: docYaml.Parameters[paramName].Type
                         })
                     }
                 })
-                return { resultParameters, resultErrors }
+                return { resultParameters, resultErrors, stackOutputData }
             }
             var templateURL = uploadInfo.Location
             try {
@@ -113,8 +121,8 @@ const deployStack = function (options) {
                     stackPluginModule = require(path.resolve(configStackFolder, `${configStackName}`))
                 }
                 if (typeof stackPluginModule.preCreation === 'function') {
-                    const { resultParameters  } = mappingParameters(docYaml, parameters)
-                    stackPluginModule.preCreation({ simplify, provider, config }, configStackName, resultParameters).then(parameterResult => {
+                    const { resultParameters, stackOutputData } = mappingParameters(docYaml, parameters)
+                    stackPluginModule.preCreation({ simplify, provider, config }, configStackName, resultParameters, docYaml, stackOutputData).then(parameterResult => {
                         const { resultParameters, resultErrors } = mappingParameters(docYaml, parameterResult)
                         if (!resultErrors) {
                             simplify.consoleWithMessage(`${opName}-PreCreation`, `${path.resolve(configStackFolder, `${configStackName}.js`)} - (Executed)`)
@@ -138,19 +146,22 @@ const deployStack = function (options) {
                 }
             } catch (error) {
                 simplify.finishWithErrors(`${opName}-LoadYAMLResource:`, getErrorMessage(error))
-            }  
+            }
         })
     })
 }
 
 const destroyStack = function (options) {
     const { configFile, envFile, configStackFolder, configStackName } = options
-    require('dotenv').config({ path: path.resolve(envFile || '.env') })
+    const envFilePath = path.resolve(envFile || '.env')
+    if (fs.existsSync(envFilePath)) {
+        require('dotenv').config({ path: envFilePath })
+    }
     var config = simplify.getInputConfig(path.resolve(configFile || 'config.json'))
     const stackConfigFile = path.resolve(config.OutputFolder, 'StackConfig.json')
     const stackList = fs.existsSync(stackConfigFile) ? JSON.parse(fs.readFileSync(stackConfigFile)) : {}
     provider.setConfig(config).then(function () {
-        function deleteStack (stackName, stackPluginModule) {
+        function deleteStack(stackName, stackPluginModule) {
             const stackFullName = `${process.env.PROJECT_NAME || config.FunctionName}-${stackName}-${process.env.DEPLOYMENT_ENV}`
             simplify.consoleWithMessage(`${opName}-CleanupResource`, `StackName - (${stackFullName})`)
             simplify.deleteStackOnComplete({
@@ -209,7 +220,10 @@ const destroyStack = function (options) {
 
 const deployFunction = function (options) {
     const { configFile, envFile, roleFile, policyFile, sourceDir, forceUpdate, asFunctionLayer, publishNewVersion } = options
-    require('dotenv').config({ path: path.resolve(envFile || '.env') })
+    const envFilePath = path.resolve(envFile || '.env')
+    if (fs.existsSync(envFilePath)) {
+        require('dotenv').config({ path: envFilePath })
+    }
     var config = simplify.getInputConfig(path.resolve(configFile || 'config.json'))
     var policyDocument = simplify.getContentFile(path.resolve(policyFile || 'policy.json'))
     var assumeRoleDocument = simplify.getContentFile(path.resolve(roleFile || 'role.json'))
@@ -306,7 +320,10 @@ const deployFunction = function (options) {
 
 const destroyFunction = function (options) {
     const { configFile, envFile, withFunctionLayer } = options
-    require('dotenv').config({ path: path.resolve(envFile || '.env') })
+    const envFilePath = path.resolve(envFile || '.env')
+    if (fs.existsSync(envFilePath)) {
+        require('dotenv').config({ path: envFilePath })
+    }
     var config = simplify.getInputConfig(path.resolve(configFile || 'config.json'))
     return provider.setConfig(config).then(_ => {
         const roleName = `${config.Function.FunctionName}Role`
@@ -336,7 +353,7 @@ const destroyFunction = function (options) {
 }
 
 var argv = require('yargs').usage('simplify-cli init | deploy | destroy [options]')
-    .string('template').describe('template', 'Init nodejs or python template').default('template', 'nodejs')
+    .string('template').describe('template', 'Init nodejs or python template')
     .string('config').alias('c', 'config').describe('config', 'function configuration').default('config', 'config.json')
     .string('policy').alias('p', 'policy').describe('policy', 'function policy to attach').default('policy', 'policy.json')
     .string('role').alias('r', 'role').describe('role', 'function policy to attach').default('role', 'role.json')
@@ -391,23 +408,40 @@ if (cmdOPS === "DEPLOY") {
         })
     }
 } else if (cmdOPS === "INIT") {
-    const inputDirectory = path.join(__dirname, argv.template)
-    utilities.getFilesInDirectory(inputDirectory).then(function (files) {
-        files.forEach(function (filePath) {
-            var fileName = filePath.replace(inputDirectory, '').replace(/^\/+/, '').replace(/^\\+/, '')
-            fs.readFile(filePath, function (err, data) {
-                if (err) reject(err)
-                else {
-                    const pathDirName = path.dirname(path.resolve(fileName))
-                    if (!fs.existsSync(pathDirName)) {
-                        fs.mkdirSync(pathDirName, { recursive: true })
+    if (typeof argv.template === "undefined") {
+        const getDirectories = source =>
+            fs.readdirSync(source, { withFileTypes: true })
+                .filter(dirent => dirent.isDirectory())
+                .map(dirent => dirent.name)
+        console.log(`\nUsing template argument with INIT command: simplify-cli init --template=name\n`)
+        getDirectories(path.join(__dirname, "templates")).map((template, idx) => {
+            const descFile = path.join(__dirname, "templates", template, "description.txt")
+            if (fs.existsSync(descFile)) {
+                console.log(` ${idx + 1}.`, `${CNOTIF}${template}${CRESET} - ${fs.readFileSync(descFile)}`)
+            } else{
+                console.log(` ${idx + 1}.`, `${template} - No information found in description.txt.`)
+            }
+        })
+        console.log(`\n *`, `Or install from URL: simplify-cli init --template=https://raw.githubusercontent.com/awslabs/...template.yml \n`)
+    } else {
+        const inputDirectory = path.join(__dirname, "templates", argv.template)
+        utilities.getFilesInDirectory(inputDirectory).then(function (files) {
+            files.forEach(function (filePath) {
+                var fileName = filePath.replace(inputDirectory, '').replace(/^\/+/, '').replace(/^\\+/, '')
+                fs.readFile(filePath, function (err, data) {
+                    if (err) reject(err)
+                    else {
+                        const pathDirName = path.dirname(path.resolve(fileName))
+                        if (!fs.existsSync(pathDirName)) {
+                            fs.mkdirSync(pathDirName, { recursive: true })
+                        }
+                        fs.writeFileSync(path.resolve(fileName.replace('dotenv', '.env')), fs.readFileSync(filePath))
                     }
-                    fs.writeFileSync(path.resolve(fileName.replace('dotenv', '.env')), fs.readFileSync(filePath))
-                }
+                })
             })
         })
-    })
-    simplify.finishWithMessage(`Initialized`, `${path.resolve('.')}`)
+        simplify.finishWithMessage(`Initialized`, `${path.resolve('.')}`)
+    }
 }
 
 module.exports = {

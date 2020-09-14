@@ -1,0 +1,1 @@
+An HTML website hosting by Amazon S3 Bucket that support publishing extension script.

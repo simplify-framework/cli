@@ -1,0 +1,1 @@
+A template to create a Cognito UserPool, Cognito Indentity and Pinpoint analytics.

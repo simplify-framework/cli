@@ -3,9 +3,9 @@ const path = require('path')
 const fs = require('fs')
 const opName = `Extension`
 module.exports = {
-    preCreation: function(adaptor, stackName, stackParameters) {
+    preCreation: function(adaptor, stackName, mappedParameters, stackYAML, stackInputs) {
         return Promise.resolve({
-            Environment: stackParameters.Environment,
+            Environment: mappedParameters.Environment,
             WebsiteBucketName: process.env.WEBSITE_BUCKET
         })
     },
