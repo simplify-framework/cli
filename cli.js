@@ -348,74 +348,41 @@ const deployFunction = function (options) {
 }
 
 const destroyFunction = function (options) {
-    function destroyFunctionByName(functionName, envName, regionName, stackList) {
-        const envOptions = { FUNCTION_NAME: functionName, DEPLOYMENT_ENV: envName, DEPLOYMENT_REGION: regionName }
-        var config = simplify.getInputConfig(path.resolve(configFile || 'config.json'), envOptions)
-        return provider.setConfig(config).then(_ => {
-            const roleName = `${config.Function.FunctionName}Role`
-            return simplify.deleteFunctionRole({
-                adaptor: provider.getIAM(),
-                roleName: roleName
-            })
-        }).then(_ => {
-            return simplify.deleteFunction({
-                adaptor: provider.getFunction(),
-                functionConfig: config.Function,
-                withLayerVersions: withFunctionLayer || false
-            }).then(data => {
-                delete stackList[functionName || process.env.FUNCTION_NAME]
-                fs.writeFileSync(stackConfigFile, JSON.stringify(stackList, null, 4))
-                let configInput = JSON.parse(fs.readFileSync(path.resolve(configFile || 'config.json')))
-                configInput.Function.Layers = []
-                fs.writeFileSync(path.resolve(configFile || 'config.json'), JSON.stringify(configInput, null, 4))
-                fs.unlinkSync(path.resolve(config.OutputFolder, `${data.FunctionName}.hash`))
-                fs.unlinkSync(path.resolve(config.OutputFolder, `${data.FunctionName}.json`))
-                simplify.consoleWithMessage(`${opName}-DestroyFunction`, `Done. ${data.FunctionName}`)
-                return Promise.resolve(data)
-            })
-        }).then(_ => {
-            simplify.deleteDeploymentBucket({ adaptor: provider.getStorage(), bucketName: config.Bucket.Name }).then(function () {
-                simplify.consoleWithMessage(`${opName}-DestroyBucket`, `Done. ${config.Bucket.Name}`)
-            })
-        }).catch(error => simplify.consoleWithMessage(`${opName}-DestroyFunction-ERROR`, getErrorMessage(error)))
-    }
-    const { regionName, configFile, envFile, envName, functionName, withFunctionLayer } = options
+    const { regionName, functionName, envName, configFile, envFile, withFunctionLayer } = options
     const envFilePath = path.resolve(envFile || '.env')
     if (fs.existsSync(envFilePath)) {
         require('dotenv').config({ path: envFilePath })
     }
-    const stackConfigFile = path.resolve(config.OutputFolder, 'StackConfig.json')
-    const stackList = fs.existsSync(stackConfigFile) ? JSON.parse(fs.readFileSync(stackConfigFile)) : {}
-    destroyFunctionByName(functionName, envName, regionName, stackList)
-}
-
-const listStacks = function (options) {
-    const { regionName, configFile, envFile, envName } = options
-    const envFilePath = path.resolve(envFile || '.env')
-    if (fs.existsSync(envFilePath)) {
-        require('dotenv').config({ path: envFilePath })
-    }
-    const envOptions = { DEPLOYMENT_ENV: envName, DEPLOYMENT_REGION: regionName }
+    const envOptions = { FUNCTION_NAME: functionName, DEPLOYMENT_ENV: envName, DEPLOYMENT_REGION: regionName }
     var config = simplify.getInputConfig(path.resolve(configFile || 'config.json'), envOptions)
     const stackConfigFile = path.resolve(config.OutputFolder, 'StackConfig.json')
     const stackList = fs.existsSync(stackConfigFile) ? JSON.parse(fs.readFileSync(stackConfigFile)) : {}
-    let tableData = []
-    if (Object.keys(stackList).length > 0) {
-        console.log(`\n * Listing for ${CNOTIF}${envName || process.env.DEPLOYMENT_ENV}${CDONE} environment \n`)
-        Object.keys(stackList).map((stackName, idx) => {
-            tableData.push({
-                Index: idx + 1,
-                Name: stackName,
-                Type: stackList[stackName].StackId ? "CF-Stack" : "Function",
-                Region: stackList[stackName].Region,
-                ResourceId: (stackList[stackName].StackId || stackList[stackName].FunctionArn).truncate(50),
-                Status: "INSTALLED"
-            })
+    return provider.setConfig(config).then(_ => {
+        const roleName = `${config.Function.FunctionName}Role`
+        return simplify.deleteFunctionRole({
+            adaptor: provider.getIAM(),
+            roleName: roleName
         })
-        utilities.printTableWithJSON(tableData)
-    } else {
-        console.log(`\n * Listing for ${CNOTIF}${envName || process.env.DEPLOYMENT_ENV}${CDONE} environment: (empty) \n`)
-    }
+    }).then(_ => {
+        return simplify.deleteFunction({
+            adaptor: provider.getFunction(),
+            functionConfig: config.Function,
+            withLayerVersions: withFunctionLayer || false
+        }).then(data => {
+            delete stackList[functionName || process.env.FUNCTION_NAME]
+            fs.writeFileSync(stackConfigFile, JSON.stringify(stackList, null, 4))
+            let configInput = JSON.parse(fs.readFileSync(path.resolve(configFile || 'config.json')))
+            configInput.Function.Layers = []
+            fs.writeFileSync(path.resolve(configFile || 'config.json'), JSON.stringify(configInput, null, 4))
+            fs.unlinkSync(path.resolve(config.OutputFolder, `${data.FunctionName}.hash`))
+            fs.unlinkSync(path.resolve(config.OutputFolder, `${data.FunctionName}.json`))
+            simplify.consoleWithMessage(`${opName}-DestroyFunction`, `Done. ${data.FunctionName}`)
+        })
+    }).then(data => {
+        return simplify.deleteDeploymentBucket({ adaptor: provider.getStorage(), bucketName: config.Bucket.Name }).then(function () {
+            simplify.consoleWithMessage(`${opName}-DestroyBucket`, `Done. ${config.Bucket.Name}`)
+        })
+    }).catch(error => simplify.consoleWithMessage(`${opName}-DestroyFunction-ERROR`, getErrorMessage(error)))
 }
 
 const createStackOnInit = function (stackNameOrURL) {
@@ -459,7 +426,7 @@ const createStackOnInit = function (stackNameOrURL) {
     }
 }
 
-const printDeletingDialog = function (options) {
+const printListingDialog = function (options) {
     const { regionName, configFile, envFile, envName } = options
     const envFilePath = path.resolve(envFile || '.env')
     if (fs.existsSync(envFilePath)) {
@@ -471,20 +438,19 @@ const printDeletingDialog = function (options) {
     const stackList = fs.existsSync(stackConfigFile) ? JSON.parse(fs.readFileSync(stackConfigFile)) : {}
     let tableData = []
     if (Object.keys(stackList).length > 0) {
-        console.log(`\n * Request deleting for ${CNOTIF}${envName || process.env.DEPLOYMENT_ENV}${CDONE} environment \n`)
+        console.log(`\n * Listing for ${CNOTIF}${envName || process.env.DEPLOYMENT_ENV}${CDONE} environment \n`)
         Object.keys(stackList).map((stackName, idx) => {
             tableData.push({
                 Index: idx + 1,
                 Name: stackName,
                 Type: stackList[stackName].StackId ? "CF-Stack" : "Function",
                 Region: stackList[stackName].Region,
-                ResourceId: (stackList[stackName].StackId || stackList[stackName].FunctionArn).truncate(50),
-                Status: (stackList[stackName].Region == config.Region) ? `DELETING` : `SKIPPED`
+                ResourceId: (stackList[stackName].StackId || stackList[stackName].FunctionArn).truncate(50)
             })
         })
         utilities.printTableWithJSON(tableData)
     } else {
-        console.log(`\n * Deleting request for ${CNOTIF}${envName || process.env.DEPLOYMENT_ENV}${CDONE} environment: (empty) \n`)
+        console.log(`\n * Listing for ${CNOTIF}${envName || process.env.DEPLOYMENT_ENV}${CDONE} environment: (empty) \n`)
     }
     return tableData
 }
@@ -555,35 +521,12 @@ if (cmdOPS === "DEPLOY") {
             withFunctionLayer: argv.layer
         })
     } else {
-        const deletedResources = printDeletingDialog({
+        printListingDialog({
             regionName: argv.region,
             configFile: argv.config,
             envName: argv.env,
             envFile: argv['env-file']
         })
-        if (deletedResources.length && readlineSync.keyInYN(` - ${CPROMPT}Do you want to destroy the DELETING resources?${CRESET} `)) {
-            deletedResources.map(resource => {
-                if (resource.Type === "CF-Stack") {
-                    destroyStack({
-                        regionName: resource.Region,
-                        configFile: argv.config,
-                        envName: argv.env,
-                        envFile: argv['env-file'],
-                        configStackFolder: argv.location,
-                        configStackName: resource.Name
-                    })
-                } else {
-                    destroyFunction({
-                        regionName: resource.Region,
-                        configFile: argv.config,
-                        envName: argv.env,
-                        envFile: argv['env-file'],
-                        functionName: resource.Name,
-                        withFunctionLayer: true
-                    })
-                }
-            })
-        }
     }
 } else if (cmdOPS === "INIT") {
     if (typeof argv.template === "undefined") {
@@ -610,10 +553,11 @@ if (cmdOPS === "DEPLOY") {
         createStackOnInit(argv.template)
     }
 } else if (cmdOPS === "LIST") {
-    listStacks({
+    printListingDialog({
+        regionName: argv.region,
         configFile: argv.config,
         envName: argv.env,
-        envFile: argv['env-file'],
+        envFile: argv['env-file']
     })
 }
 
