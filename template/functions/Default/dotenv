@@ -1,0 +1,8 @@
+### - Application Deployment
+DEPLOYMENT_ENV=staging
+DEPLOYMENT_BUCKET=starwars-deployment-37216
+DEPLOYMENT_REGION=eu-central-1
+DEPLOYMENT_ACCOUNT=your_aws_account
+DEPLOYMENT_PROFILE=your_aws_profile
+### - Application StackName
+PROJECT_NAME=MyStarWars

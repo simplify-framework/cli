@@ -1,0 +1,1 @@
+A lambda function based on NodeJS 12.x runtime with default Role and Policy configuration.

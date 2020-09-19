@@ -1,0 +1,14 @@
+{
+  "name": "nodejs-serverless",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "deploy": "simplify-cli deploy",
+    "destroy": "simplify-cli destroy",
+    "stack-deploy": "simplify-cli deploy --stack-name",
+    "stack-destroy": "simplify-cli destroy --stack-name"
+  },
+  "author": "",
+  "license": "ISC"
+}

@@ -1,0 +1,1 @@
+A lambda function based on Python 3.7 runtime with default Role and Policy configuration.
