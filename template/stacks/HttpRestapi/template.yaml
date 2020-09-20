@@ -4,9 +4,9 @@ Parameters:
   Environment:
     Type: String
     Default: staging
-  NodeJSFunctionName:
+  LambdaFunctionName:
     Type: String
-  NodeJSFunctionArn:
+  LambdaFunctionArn:
     Type: String
   CognitoUserPoolId:
     Type: String
@@ -106,7 +106,7 @@ Resources:
                   - - 'arn:aws:apigateway:'
                     - !Ref AWS::Region
                     - ":lambda:path/2015-03-31/functions/"
-                    - !Ref NodeJSFunctionArn
+                    - !Ref LambdaFunctionArn
                     - "/invocations"                
                 passthroughBehavior: when_no_match
                 httpMethod: POST
@@ -167,7 +167,7 @@ Resources:
           #         - - 'arn:aws:apigateway:'
           #           - !Ref AWS::Region
           #           - ":lambda:path/2015-03-31/functions/"
-          #           - !Ref NodeJSFunctionArn
+          #           - !Ref LambdaFunctionArn
           #           - "/invocations"                
           #       passthroughBehavior: when_no_match
           #       httpMethod: POST
@@ -256,7 +256,7 @@ Resources:
   HttpApiServerLambdaApiGatewayPermission:
     Type: AWS::Lambda::Permission
     Properties:
-      FunctionName: !Ref NodeJSFunctionName
+      FunctionName: !Ref LambdaFunctionName
       Action: lambda:InvokeFunction
       Principal: apigateway.amazonaws.com
       SourceArn:
@@ -277,7 +277,7 @@ Resources:
         Fn::Join:
         - ""
         - - '/aws/lambda/'
-          - !Ref NodeJSFunctionName
+          - !Ref LambdaFunctionName
       RetentionInDays: 14
 
 Outputs:

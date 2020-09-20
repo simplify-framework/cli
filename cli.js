@@ -57,8 +57,8 @@ const deployStack = function (options) {
             ...{ bucketKey: config.Bucket.Key, inputLocalFile: stackYamlFile }
         }).then(function (uploadInfo) {
             function processStackData(stackData) {
-                let outputData = {}
-                outputData[configStackName] = {}
+                let outputData = { }
+                outputData[configStackName] = { "LastUpdate": Date.now(), "Type": "CF-Stack" }
                 stackData.Outputs.map(function (o) {
                     outputData[configStackName][o.OutputKey] = o.OutputValue
                 })
@@ -301,9 +301,15 @@ const deployFunction = function (options) {
         }
     }).then(function (data) {
         const writeStackOutput = function (config, data) {
-            let outputData = {}
+            let outputData = { }
             const functionRegion = data.FunctionArn.split(':')[3]
-            outputData[functionName || process.env.FUNCTION_NAME] = { Region: functionRegion, FunctionName: config.Function.FunctionName, FunctionArn: data.FunctionArn }
+            outputData[functionName || process.env.FUNCTION_NAME] = {
+                LastUpdate: Date.now(),
+                Region: functionRegion,
+                FunctionName: config.Function.FunctionName,
+                FunctionArn: data.FunctionArn,
+                Type: "Function"
+            }
             if (fs.existsSync(stackConfigFile)) {
                 outputData = { ...JSON.parse(fs.readFileSync(stackConfigFile)), ...outputData }
             }
@@ -456,20 +462,21 @@ const printListingDialog = function (options, prompt) {
     const stackList = fs.existsSync(stackConfigFile) ? JSON.parse(fs.readFileSync(stackConfigFile)) : {}
     let tableData = []
     if (Object.keys(stackList).length > 0) {
-        console.log(`\n * ${prompt ? prompt : `Listing for ${CNOTIF}${envName || process.env.DEPLOYMENT_ENV}${CDONE} environment \n`}`)
+        console.log(`\n * ${prompt ? prompt : `Listing installed components for ${CNOTIF}${envName || process.env.DEPLOYMENT_ENV}${CDONE} environment \n`}`)
         Object.keys(stackList).map((stackName, idx) => {
             tableData.push({
                 Index: idx + 1,
                 Name: stackName,
                 Type: stackList[stackName].StackId ? "CF-Stack" : "Function",
                 Region: stackList[stackName].Region,
-                ResourceId: (stackList[stackName].StackId || stackList[stackName].FunctionArn).truncate(50),
-                Status: "INSTALLED"
+                ResourceId: (stackList[stackName].StackId || stackList[stackName].FunctionArn).truncate(30),
+                Status: "INSTALLED",
+                LastUpdate: utilities.formatTimeSinceAgo(stackList[stackName].LastUpdate)
             })
         })
         utilities.printTableWithJSON(tableData)
     } else {
-        console.log(`\n * Listing for ${CNOTIF}${envName || process.env.DEPLOYMENT_ENV}${CDONE} environment: (empty) \n`)
+        console.log(`\n * Listing installed components for ${CNOTIF}${envName || process.env.DEPLOYMENT_ENV}${CDONE} environment: (empty) \n`)
     }
     return tableData
 }
@@ -501,6 +508,8 @@ const showAvailableStacks = (options, promptDescription) => {
     const stackConfigFile = path.resolve(config.OutputFolder, 'StackConfig.json')
     const stackList = fs.existsSync(stackConfigFile) ? JSON.parse(fs.readFileSync(stackConfigFile)) : {}
     let stackStatus = "AVAILABLE"
+    let stackUpdate = "         "
+    let stackType = ""
     let indexOfTemplate = 0
     let tableStackData = []
     console.log(`\n * ${promptDescription}\n`)
@@ -513,14 +522,20 @@ const showAvailableStacks = (options, promptDescription) => {
             if (fs.existsSync(descFile)) {
                 description = `${fs.readFileSync(descFile)}`
                 stackStatus = installedStack ? "INSTALLED" : "AVAILABLE"
+                stackUpdate = installedStack ? utilities.formatTimeSinceAgo(stackList[template].LastUpdate) : ""
+                stackType = installedStack ? stackList[template].Type : fs.existsSync(path.resolve(template, "template.yaml")) ? "CF-Stack" : "Function"
             } else {
                 stackStatus = "----*----"
+                stackUpdate = "         "
+                stackType = "CF-Stack"
             }
             tableStackData.push({
                 Index: `${indexOfTemplate + 1}`,
                 Name: `${template}`,
-                Description: `${description}`,
-                Status: stackStatus
+                Type: stackType,
+                Description: `${description.truncate(30)}`,
+                Status: stackStatus,
+                LastUpdate: stackUpdate
             })
             indexOfTemplate++
         }
@@ -551,25 +566,20 @@ var argv = require('yargs').usage('simplify-cli init | deploy | destroy [options
 
 var cmdOPS = (argv._[0] || 'deploy').toUpperCase()
 var optCMD = (argv._.length > 1 ? argv._[1]: undefined)
+var cmdArg = argv['stack'] || argv['function'] || optCMD
+var cmdType = cmdArg ? fs.existsSync(path.resolve(cmdArg, "template.yaml")) ? "CF-Stack" : "Function" : undefined
 
 if (cmdOPS === "DEPLOY") {
-    if (argv['stack'] !== undefined) {
-        deployStack({
+    if (cmdArg !== undefined) {
+        (cmdType === "Function" ? deployFunction : deployStack)({
             regionName: argv.region,
+            functionName: cmdArg,
             configFile: argv.config,
-            envName: argv.env,
-            dataFile: argv.data,
-            envFile: argv['env-file'],
+            configStackName: cmdArg,
             configStackFolder: argv.location,
-            configStackName: argv['stack']
-        })
-    } else if (argv.function !== undefined) {
-        deployFunction({
-            regionName: argv.region,
-            functionName: argv.function,
-            configFile: argv.config,
             envName: argv.env,
             envFile: argv['env-file'],
+            dataFile: argv.data,
             roleFile: argv.role,
             policyFile: argv.policy,
             sourceDir: argv.source,
