@@ -12,8 +12,7 @@ Resources:
     Type: AWS::CloudFront::CloudFrontOriginAccessIdentity
     Properties: 
       CloudFrontOriginAccessIdentityConfig: 
-        CloudFrontOriginAccessIdentityConfig:
-          Comment: Origin Access for Website with S3Origin
+        Comment: Origin Access for Website with S3Origin
   CFDistribution:
     Type: AWS::CloudFront::Distribution
     Properties:
@@ -25,9 +24,9 @@ Resources:
             OriginAccessIdentity:
               Fn::Join:
               - "/"
-              - "origin-access-identity"
-              - "cloudfront"
-              - !Ref S3OriginAccessIdentity
+              - - "origin-access-identity"
+                - "cloudfront"
+                - !Ref S3OriginAccessIdentity
         - DomainName: !Select [2, !Split ["/", !Ref HttpRestapiEndpoint]]
           Id: HttpRestapiOrigin
           CustomOriginConfig:
@@ -35,18 +34,17 @@ Resources:
             HTTPSPort: '443'
             OriginProtocolPolicy: http-only
         CacheBehaviors:
-          PathPattern: !Sub "/${Environment}/*"
-          AllowedMethods:
-            - GET
-            - OPTIONS
-            - POST
-            - PUT
-          TargetOriginId: HttpRestapiOrigin
-          ForwardedValues:
-            QueryString: 'true'
-            Cookies:
-              Forward: all
-          ViewerProtocolPolicy: allow-all
+          - PathPattern: !Sub "/${Environment}/*"
+            AllowedMethods:
+              - GET
+              - OPTIONS
+              - HEAD
+            TargetOriginId: HttpRestapiOrigin
+            ForwardedValues:
+              QueryString: 'true'
+              Cookies:
+                Forward: all
+            ViewerProtocolPolicy: allow-all
         DefaultCacheBehavior:
           AllowedMethods:
           - GET

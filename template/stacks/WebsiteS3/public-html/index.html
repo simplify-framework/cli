@@ -1,16 +1,59 @@
 <html>
-    <head>
-        <title>Minimalist Serverless Application</title>
-    </head>
-    <body style="background: black; color: white; font-family: monospace">
-        <p id="data-binding">Loading...</p>
-        <script>
-            fetch('/config.json').then(response => response.json()).then(data => {
-                fetch(data.ServerURL + '/content').then(response => response.json()).then(data => {
-                    console.log(data)
-                    document.getElementById("data-binding").innerHTML = data.content
-                })
+
+<head>
+    <title>Minimalist Serverless Application</title>
+    <script src="vendor/amazon-cognito-identity.min.js"></script>
+</head>
+
+<body style="background: black; color: white; font-family: monospace">
+    <p id="data-binding">Loading...</p>
+    <script>
+        fetch('/WebsiteConfig.json').then(response => response.json()).then(data => {
+            var CognitoUserPool = AmazonCognitoIdentity.CognitoUserPool;
+            var authenticationDetails = new AmazonCognitoIdentity.AuthenticationDetails({
+                Username: 'starwars',
+                Password: 'Starwars@2020',
             });
-        </script>
-    </body>
+            var cognitoUser = new AmazonCognitoIdentity.CognitoUser({
+                Username: 'starwars',
+                Pool: new AmazonCognitoIdentity.CognitoUserPool({
+                    UserPoolId: data.UserPoolId,
+                    ClientId: data.UserPoolClientId
+                }),
+            });
+            cognitoUser.authenticateUser(authenticationDetails, {
+                onSuccess: function (result) {
+                    var accessToken = result.getAccessToken().getJwtToken();
+                    var credentialsData = {
+                        IdentityPoolId: `${data.IdentityPoolId}`,
+                        Logins: {},
+                    }
+                    credentialsData.Logins[`cognito-idp.${data.Region}.amazonaws.com/${data.UserPoolId}`] = result.getIdToken().getJwtToken()
+                    AWS.config.region = `${data.Region}`;
+                    AWS.config.credentials = new AWS.CognitoIdentityCredentials(credentialsData);
+                    //refreshes credentials using AWS.CognitoIdentity.getCredentialsForIdentity()
+                    AWS.config.credentials.refresh(error => {
+                        if (error) {
+                            console.error(error);
+                        } else {
+                            // Instantiate aws sdk service objects now that the credentials have been updated.
+                            // example: var s3 = new AWS.S3();
+                            console.log('Successfully logged!');
+                            fetch(data.ServerURL + '/content', {
+                                headers: { 'Authorization': `${result.getIdToken().getJwtToken()}` }
+                            }).then(response => response.json()).then(data => {
+                                console.log(data)
+                                document.getElementById("data-binding").innerHTML = data.content
+                            })
+                        }
+                    });
+                },
+                onFailure: function (err) {
+                    alert(err.message || JSON.stringify(err));
+                },
+            });
+        });
+    </script>
+</body>
+
 </html>

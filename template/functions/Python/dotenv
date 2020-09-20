@@ -1,13 +1,5 @@
-### - Application Deployment
-DEPLOYMENT_ENV=staging
-DEPLOYMENT_BUCKET=tensorflow-deployment-37216
-DEPLOYMENT_REGION=eu-central-1
-DEPLOYMENT_ACCOUNT=your_aws_account_id
-DEPLOYMENT_PROFILE=your_aws_profile
-### - Application StackName
-PROJECT_NAME=TensorFlowTest
 ### - Backend Serverless Lambda
-FUNCTION_NAME=detectObject
+FUNCTION_NAME=##PROJECT_NAME##-detectObject
 FUNCTION_RUNTIME=python3.7
 FUNCTION_HANDLER=main.handler
 FUNCTION_SOURCE=src
