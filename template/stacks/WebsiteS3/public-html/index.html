@@ -2,56 +2,69 @@
 
 <head>
     <title>Minimalist Serverless Application</title>
+    <link rel="stylesheet" type="text/css" href="css/modal.css">
+    <link rel="stylesheet" type="text/css" href="css/login.css">
     <script src="vendor/amazon-cognito-identity.min.js"></script>
+    <script src="vendor/aws-sdk-v2.757.0.js"></script>
+    <script src="lib/cognito-user.js"></script>
+    <script src="lib/modal.js"></script>
 </head>
 
 <body style="background: black; color: white; font-family: monospace">
     <p id="data-binding">Loading...</p>
+    <div id="login-modal" class="modal">
+        <div class="modal__overlay jsOverlay"></div>
+        <div class="modal__container">
+            <button class="modal__close jsModalClose">&#10005;</button>
+            <p class="title">Please login as an admin of <a href="https://admin.switchmail.com">SwitchMail</a></p>
+            <div class="form">
+                <div class="login-form" action="">
+                    <input type="text" name="email" placeholder="email address" />
+                    <input type="password" name="password" placeholder="password" />
+                    <button class="jsModalClose">login</button>
+                    <p class="message">Not have an account? <a href="#">Ask for someone.</a></p>
+                </div>
+            </div>
+        </div>
+    </div>
     <script>
         fetch('/WebsiteConfig.json').then(response => response.json()).then(data => {
-            var CognitoUserPool = AmazonCognitoIdentity.CognitoUserPool;
-            var authenticationDetails = new AmazonCognitoIdentity.AuthenticationDetails({
-                Username: 'starwars',
-                Password: 'Starwars@2020',
-            });
-            var cognitoUser = new AmazonCognitoIdentity.CognitoUser({
-                Username: 'starwars',
-                Pool: new AmazonCognitoIdentity.CognitoUserPool({
-                    UserPoolId: data.UserPoolId,
-                    ClientId: data.UserPoolClientId
-                }),
-            });
-            cognitoUser.authenticateUser(authenticationDetails, {
-                onSuccess: function (result) {
-                    var accessToken = result.getAccessToken().getJwtToken();
-                    var credentialsData = {
-                        IdentityPoolId: `${data.IdentityPoolId}`,
-                        Logins: {},
+            var auth = initCognito(data, session => {
+			    var accessToken = session.getAccessToken().getJwtToken();
+                var credentialsData = {
+                    IdentityPoolId: `${data.IdentityPoolId}`,
+                    Logins: {},
+                }
+                credentialsData.Logins[`cognito-idp.${data.Region}.amazonaws.com/${data.UserPoolId}`] = session.getIdToken().getJwtToken()
+                AWS.config.region = `${data.Region}`;
+                AWS.config.credentials = new AWS.CognitoIdentityCredentials(credentialsData);
+                AWS.config.credentials.refresh(error => {
+                    if (error) {
+                        console.error(error);
+                    } else {
+                        // Instantiate aws sdk service objects now that the credentials have been updated.
+                        // example: var s3 = new AWS.S3();
+                        console.log('Successfully logged!');
+                        fetch(data.ServerURL + '/content', {
+                            headers: { 'Authorization': `${session.getIdToken().getJwtToken()}` }
+                        }).then(response => response.json()).then(data => {
+                            console.log(data)
+                            document.getElementById("data-binding").innerHTML = data.content
+                        })
                     }
-                    credentialsData.Logins[`cognito-idp.${data.Region}.amazonaws.com/${data.UserPoolId}`] = result.getIdToken().getJwtToken()
-                    AWS.config.region = `${data.Region}`;
-                    AWS.config.credentials = new AWS.CognitoIdentityCredentials(credentialsData);
-                    //refreshes credentials using AWS.CognitoIdentity.getCredentialsForIdentity()
-                    AWS.config.credentials.refresh(error => {
-                        if (error) {
-                            console.error(error);
-                        } else {
-                            // Instantiate aws sdk service objects now that the credentials have been updated.
-                            // example: var s3 = new AWS.S3();
-                            console.log('Successfully logged!');
-                            fetch(data.ServerURL + '/content', {
-                                headers: { 'Authorization': `${result.getIdToken().getJwtToken()}` }
-                            }).then(response => response.json()).then(data => {
-                                console.log(data)
-                                document.getElementById("data-binding").innerHTML = data.content
-                            })
-                        }
-                    });
-                },
-                onFailure: function (err) {
-                    alert(err.message || JSON.stringify(err));
-                },
+                });
+            }, error => {
+                if ("NotAuthorizedException" === error.code || "UserNotFoundException" === error.code) {
+                    console.log("Invalid username or password!")
+                }
             });
+            auth.refresh(function (callback) {
+				openModal("login-modal", function (element) {
+					var username = jQuery("#login-modal .login-form input[name='email']").val()
+					var password = jQuery("#login-modal .login-form input[name='password']").val()
+					callback(username, password)
+				})
+			})
         });
     </script>
 </body>
