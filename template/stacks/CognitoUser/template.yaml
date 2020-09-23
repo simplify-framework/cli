@@ -35,14 +35,16 @@ Resources:
                 Resource: '*'
 
   # Creates a user pool in cognito for your app to auth against
-  # This example requires MFA and validates the phone number to use as MFA
+  # This example validates the email address 
   # Other fields can be added to the schema
   CognitoUserPool:
     Type: 'AWS::Cognito::UserPool'
     Properties:
       AutoVerifiedAttributes:
-        - phone_number
-      MfaConfiguration: 'ON'
+        - email
+      AliasAttributes:
+        - email
+      MfaConfiguration: 'OPTIONAL'
       SmsConfiguration:
         ExternalId: !Sub ${AWS::StackName}-external
         SnsCallerArn: !GetAtt SNSRoleForSMS.Arn
@@ -58,7 +60,7 @@ Resources:
         - Name: phone_number
           AttributeDataType: String
           Mutable: false
-          Required: true
+          Required: false
 
   # Creates a User Pool Client to be used by the identity pool
   UserPoolClient:
@@ -67,6 +69,25 @@ Resources:
       ClientName: !Sub ${AWS::StackName}-client
       GenerateSecret: false
       UserPoolId: !Ref CognitoUserPool
+      RefreshTokenValidity: 30
+      AllowedOAuthFlows:
+        - code
+      AllowedOAuthScopes:
+        - phone
+        - email
+        - openid
+        - profile
+        - aws.cognito.signin.user.admin
+      ExplicitAuthFlows:
+        - ALLOW_USER_SRP_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+      CallbackURLs:
+        - "https://localhost:5000/"
+      LogoutURLs:
+        - "https://localhost:5000/"
+      AllowedOAuthFlowsUserPoolClient: true
+      SupportedIdentityProviders:
+        - COGNITO
   
   # Creates a federeated Identity pool
   CognitoIdentityPool:
