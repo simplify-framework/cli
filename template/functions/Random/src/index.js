@@ -27,6 +27,6 @@ var randprng_lcg = function (n, seed) {
 
 module.exports.handler = function (event, context, callback) {
     var startedT = Date.now()
-    var _100rnd = randprng_lcg(100, parseInt(Buffer.from(context.aws_request_id, 'utf8').toString('hex'), 16))
+    var _100rnd = randprng_lcg(100, parseInt(Buffer.from(context.awsRequestId, 'utf8').toString('hex'), 16))
     setTimeout(function () { callback(null, `Done with ${Date.now() - startedT} ms`) }, _100rnd[parseInt(Math.random() * 100)])
 }
