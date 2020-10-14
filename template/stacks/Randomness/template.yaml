@@ -54,7 +54,7 @@ Resources:
                   var expnumber = (fraction).toExponential().replace('-', '')
                   var sequence = Number(expnumber).toFixedSpecial(16).replace('.', '')
                   lastrng = sequence;
-                  results.push(parseInt(sequence.slice(0, 3)))
+                  results.push(parseInt(sequence.slice(0, 6)))
               })
               return results
           }
@@ -62,7 +62,8 @@ Resources:
           module.exports.handler = function (event, context, callback) {
               var startedT = Date.now()
               var _100rnd = randprng_lcg(100, parseInt(Buffer.from(context.awsRequestId, 'utf8').toString('hex'), 16))
-              setTimeout(function () { callback(null, `Done with ${Date.now() - startedT} ms`) }, _100rnd[parseInt(Math.random() * 100)])
+              var valueRnd = _100rnd[parseInt(Math.random() * 100)] / 1000
+              setTimeout(function () { callback(null, { message: `Done with ${Date.now() - startedT} ms`,  elapsed: valueRnd, randoms: _100rnd  }) }, valueRnd)
           }        
       Handler: index.handler
       MemorySize: 128
