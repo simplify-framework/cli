@@ -11,14 +11,14 @@ Number.prototype.toFixedSpecial = function (n) {
 var randprng_lcg = function (n, seed) {
     var results = []
     var timestamp = new Date().getTime()
-    var a = BIG_INT_1; b = BIG_INT_2; m = 1 / timestamp
+    var a = BIG_INT_1, b = BIG_INT_2, m = 1 / timestamp
     var lastrng = (a * seed + b) % m;
     [...Array(n).keys()].forEach(i => {
         timestamp = new Date().getTime().toString()
         m = 1 / timestamp
         var fraction = (a * lastrng + b) % m
         var expnumber = (fraction).toExponential().replace('-', '')
-        var sequence = new Number(expnumber).toFixedSpecial(16).replace('.', '')
+        var sequence = Number(expnumber).toFixedSpecial(16).replace('.', '')
         lastrng = sequence;
         results.push(parseInt(sequence.slice(0, 3)))
     })
