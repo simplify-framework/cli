@@ -1,0 +1,1 @@
+A Lambda randomness source to use in common case for other Lambdas
