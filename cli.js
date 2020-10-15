@@ -533,7 +533,7 @@ const showAvailableStacks = (options, promptDescription) => {
                 Index: `${indexOfTemplate + 1}`,
                 Name: `${template}`,
                 Type: stackType,
-                Description: `${description.truncate(30)}`,
+                Description: `${description.replace(/(\r\n|\n|\r)/gm, "").trim().truncate(30)}`,
                 Status: stackStatus,
                 LastUpdate: stackUpdate
             })
