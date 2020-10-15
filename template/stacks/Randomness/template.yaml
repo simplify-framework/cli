@@ -85,9 +85,6 @@ Outputs:
       Fn::GetAtt:
         - LambdaRole
         - Arn
-    Export:
-      Name:
-        Fn::Sub: LambdaRole
   FunctionName:
     Value:
       Ref: LambdaFunction
