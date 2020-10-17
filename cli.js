@@ -4,6 +4,7 @@ const path = require('path')
 const fs = require('fs')
 const fetch = require('node-fetch')
 const { yamlParse } = require('yaml-cfn');
+process.env.DISABLE_BOX_BANNER = true
 const simplify = require('simplify-sdk')
 const utilities = require('simplify-sdk/utilities')
 const provider = require('simplify-sdk/provider');
@@ -19,6 +20,12 @@ const CDONE = '\x1b[37m'
 const envFilePath = path.resolve('.env')
 if (fs.existsSync(envFilePath)) {
     require('dotenv').config({ path: envFilePath })
+}
+
+const showBoxBanner = function () {
+    console.log("╓───────────────────────────────────────────────────────────────╖")
+    console.log(`║                 Simplify CLI - Version ${require('./package.json').version}                 ║`)
+    console.log("╙───────────────────────────────────────────────────────────────╜")
 }
 
 const getFunctionArn = function (functionName, locationFolder) {
@@ -162,7 +169,7 @@ const deployStack = function (options) {
                 simplify.finishWithErrors(`${opName}-LoadYAMLResource:`, getErrorMessage(error))
             }
         })
-    })
+    }).catch(error => simplify.finishWithErrors(`${opName}-LoadYAMLResource:`, getErrorMessage(error)))
 }
 
 const destroyStack = function (options) {
@@ -543,6 +550,8 @@ const showAvailableStacks = (options, promptDescription) => {
     utilities.printTableWithJSON(tableStackData)
 }
 
+showBoxBanner()
+
 var argv = require('yargs').usage('simplify-cli init | deploy | destroy [options]')
     .string('help').describe('help', 'Display Help for a specific command')
     .string('name').describe('name', 'Specify a name for the created project')
@@ -632,12 +641,12 @@ if (cmdOPS === "DEPLOY") {
             console.log(`\n *`, `Or install from URL: simplify-cli init [--template=]https://github.com/awslabs/...template.yml \n`)
         } else {
             createStackOnInit({
-                PROJECT_NAME: readlineSync.question(` - ${CPROMPT}What is your Project name?${CRESET} (starwars) `) || 'starwars',
-                DEPLOYMENT_BUCKET: readlineSync.question(` - ${CPROMPT}What is your Bucket name?${CRESET} (starwars-0920) `) || 'starwars-0920',
-                DEPLOYMENT_ACCOUNT: readlineSync.question(` - ${CPROMPT}What is your Account Id?${CRESET} (1234567890) `) || '1234567890',
-                DEPLOYMENT_PROFILE: readlineSync.question(` - ${CPROMPT}What is your Account profile?${CRESET} (simplify-eu) `) || 'simplify-eu',
-                DEPLOYMENT_REGION: readlineSync.question(` - ${CPROMPT}What is your Default region?${CRESET} (eu-central-1) `) || 'eu-central-1',
-                DEPLOYMENT_ENV: readlineSync.question(` - ${CPROMPT}What is your Environment name?${CRESET} (demo) `) || 'demo'
+                PROJECT_NAME: readlineSync.question(` - ${CPROMPT}What is your Project name?${CRESET} (${process.env.PROJECT_NAME || 'starwars'}) `) || `${process.env.PROJECT_NAME || 'starwars'}`,
+                DEPLOYMENT_BUCKET: readlineSync.question(` - ${CPROMPT}What is your Bucket name?${CRESET} (${process.env.DEPLOYMENT_BUCKET || 'starwars-0920'}) `) || `${process.env.DEPLOYMENT_BUCKET || 'starwars-0920'}`,
+                DEPLOYMENT_ACCOUNT: readlineSync.question(` - ${CPROMPT}What is your Account Id?${CRESET} (${process.env.DEPLOYMENT_ACCOUNT || '1234567890'}) `) || `${process.env.DEPLOYMENT_ACCOUNT || '1234567890'}`,
+                DEPLOYMENT_PROFILE: readlineSync.question(` - ${CPROMPT}What is your Account profile?${CRESET} (${process.env.DEPLOYMENT_PROFILE || 'simplify-eu'}) `) || `${process.env.DEPLOYMENT_PROFILE || 'simplify-eu'}`,
+                DEPLOYMENT_REGION: readlineSync.question(` - ${CPROMPT}What is your Default region?${CRESET} (${process.env.DEPLOYMENT_REGION || 'eu-central-1'}) `) || `${process.env.DEPLOYMENT_REGION || 'eu-central-1'}`,
+                DEPLOYMENT_ENV: readlineSync.question(` - ${CPROMPT}What is your Environment name?${CRESET} (${process.env.DEPLOYMENT_ENV || 'demo'}) `) || `${process.env.DEPLOYMENT_ENV || 'demo'}`
             })
             console.log(`\n *`, `Type '--help' with INIT to find more: simplify-cli init --help \n`)
         }
