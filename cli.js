@@ -552,7 +552,7 @@ const showAvailableStacks = (options, promptDescription) => {
 
 showBoxBanner()
 
-var argv = require('yargs').usage('simplify-cli init | deploy | destroy [options]')
+var argv = require('yargs').usage('simplify-cli init | deploy | destroy | show [options]')
     .string('help').describe('help', 'Display Help for a specific command')
     .string('name').describe('name', 'Specify a name for the created project')
     .string('template').describe('template', 'Init nodejs or python template')
@@ -632,6 +632,13 @@ if (cmdOPS === "DEPLOY") {
             envFile: argv['env-file']
         }, `Select a ${CPROMPT}stack${CRESET} or ${CPROMPT}function${CRESET} to destroy with command: simplify-cli destroy [--stack or --function] name`)
     }
+} else if (cmdOPS === "SHOW") {
+    printListingDialog({
+            regionName: argv.region,
+            configFile: argv.config,
+            envName: argv.env,
+            envFile: argv['env-file']
+        }, `Deployed ${CPROMPT}stacks${CRESET} and ${CPROMPT}functions${CRESET} managed by Simplify CLI:`)
 } else if (cmdOPS === "INIT") {
     const templateName = argv.template || optCMD
     if (typeof templateName === "undefined") {
