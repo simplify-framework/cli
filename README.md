@@ -33,7 +33,7 @@ Create associated CF stack: simplify-cli init [--template=]CloudFront | CognitoU
   
 ### Init your environment
 
-    simplify-cli init
+    simplify-cli init **Lambda** --name LambdaTest
 
     Will generate .env, config.json, role.json and policy.json:
     
@@ -43,24 +43,23 @@ Create associated CF stack: simplify-cli init [--template=]CloudFront | CognitoU
 
 ### Deploy your function
 
-    1. simplify-cli deploy --source src             # resilience deploying your function code 
-    2. simplify-cli deploy --update --publish       # publish the latest code to a lambda version
-    3. simplify-cli deploy --layer --source layer   # make the layer/nodejs folder into lambda layer
+    1. simplify-cli deploy --function LambdaTest --source src             # resilience deploying your function code 
+    2. simplify-cli deploy --function LambdaTest --update --publish       # publish the latest code to a lambda version
+    3. simplify-cli deploy --function LambdaTest --layer --source layer   # make the layer/nodejs folder into lambda layer
 
 ### Destroy your function
 
-    1. simplify-cli destroy                         # destroy your function only, keep layers
-    2. simplify-cli destroy --layer                 # destroy your function with all layers
+    1. simplify-cli destroy --function LambdaTest                         # destroy your function only, keep layers
+    2. simplify-cli destroy --function LambdaTest --layer                 # destroy your function with all layers
 
 ### Deploy a CloudFormation stack
 
-    1. simplify-cli deploy --stack-name HttpRestapi     # create a stack from "${location}/${stack-name}.yaml"
-    3. simplify-cli deploy --stack-name HttpRestapi --location templates
+    1. simplify-cli deploy --stack HttpRestapi     # create a stack from "${location}/${stack-name}.yaml"
+    3. simplify-cli deploy --stack HttpRestapi --location templates
 
 ### Destroy a CloudFormation stack
 
-    1. simplify-cli destroy --stack-name HttpRestapi    # delete a selected stack name
-    2. simplify-cli destroy --stack-name *              # delete all deployed stacks...
+    1. simplify-cli destroy --stack HttpRestapi    # delete a selected stack name
 
 ### Deployment Extension for CloudFromation
 
