@@ -524,17 +524,18 @@ const showAvailableStacks = (options, promptDescription) => {
         const excludeFolders = [".simplify", ".git", ".github", "dist", "node_modules", "output"].indexOf(template) == -1 ? false : true
         if (!excludeFolders && !template.startsWith('.') && !template.startsWith('_')) {
             const descFile = path.resolve('.', template, "description.txt")
-            let description = `No information found in description.txt. This may not be a compatible deployment pack.`
+            const hasTemplateFile = fs.existsSync(path.resolve(template, "template.yaml"))
+            let description = `No information found in description.txt. This may not be a compatible package.`
             const installedStack = Object.keys(stackList).indexOf(template) >= 0 ? true : false
             if (fs.existsSync(descFile)) {
                 description = `${fs.readFileSync(descFile)}`
                 stackStatus = installedStack ? "INSTALLED" : "AVAILABLE"
                 stackUpdate = installedStack ? utilities.formatTimeSinceAgo(stackList[template].LastUpdate) : ""
-                stackType = installedStack ? stackList[template].Type : fs.existsSync(path.resolve(template, "template.yaml")) ? "CF-Stack" : "Function"
+                stackType = installedStack ? stackList[template].Type : hasTemplateFile ? "CF-Stack" : "Function"
             } else {
                 stackStatus = "----*----"
                 stackUpdate = "         "
-                stackType = "CF-Stack"
+                stackType = hasTemplateFile ? "CF-Stack" : "Unknown"
             }
             tableStackData.push({
                 Index: `${indexOfTemplate + 1}`,
