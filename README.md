@@ -33,7 +33,7 @@ Create associated CF stack: simplify-cli init [--template=]CloudFront | CognitoU
   
 ### Init your environment
 
-    simplify-cli init **Lambda** --name LambdaTest
+    simplify-cli init `Lambda` --name `LambdaTest`
 
     Will generate .env, config.json, role.json and policy.json:
     
