@@ -3,5 +3,7 @@ node_modules/
 .env
 .hash
 .output
+.local
+.simplify
 python/layer/
 package-lock.json

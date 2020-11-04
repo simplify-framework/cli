@@ -52,6 +52,7 @@ const deployStack = function (options) {
     var config = simplify.getInputConfig(path.resolve(configFile || 'config.json'), envOptions)
     const stackConfigFile = path.resolve(config.OutputFolder, 'StackConfig.json')
     const stackYamlFile = path.resolve(configStackFolder, `${configStackName}`, `template.yaml`)
+    console.log(stackYamlFile)
     if (!fs.existsSync(stackYamlFile)) {
         simplify.finishWithErrors(`${opName}-CheckTemplate`, `${stackYamlFile} not found.`)
     }
@@ -405,7 +406,7 @@ const destroyFunction = function (options) {
     }).catch(error => simplify.consoleWithMessage(`${opName}-DestroyFunction-ERROR`, getErrorMessage(error)))
 }
 
-const createStackOnInit = function (stackNameOrURL, envArgs) {
+const createStackOnInit = function (stackNameOrURL, locationFolder, envArgs) {
     const writeTemplateOutput = (templateFolderName, projectLocation) => {
         const inputDirectory = path.join(__dirname, ...templateFolderName.split('/'), typeof stackNameOrURL === 'string' ? stackNameOrURL : '')
         if (fs.existsSync(inputDirectory)) {
@@ -415,7 +416,7 @@ const createStackOnInit = function (stackNameOrURL, envArgs) {
                     fs.readFile(filePath, function (err, data) {
                         if (err) reject(err)
                         else {
-                            const pathDirName = path.dirname(path.resolve(outputFileName))
+                            const pathDirName = path.dirname(path.resolve(locationFolder, outputFileName))
                             if (!fs.existsSync(pathDirName)) {
                                 fs.mkdirSync(pathDirName, { recursive: true })
                             }
@@ -426,7 +427,7 @@ const createStackOnInit = function (stackNameOrURL, envArgs) {
                                     dataReadBuffer = dataReadBuffer.replace(`##${k}##`, parserArgs[k])
                                 })
                             }
-                            fs.writeFileSync(path.resolve(outputFileName.replace('dotenv', '.env')), dataReadBuffer)
+                            fs.writeFileSync(path.resolve(locationFolder, outputFileName.replace('dotenv', '.env')), dataReadBuffer)
                         }
                     })
                 })
@@ -478,7 +479,7 @@ const printListingDialog = function (options, prompt) {
                 Region: stackList[stackName].Region,
                 ResourceId: (stackList[stackName].StackId || stackList[stackName].FunctionArn).truncate(30),
                 Status: "INSTALLED",
-                LastUpdate: utilities.formatTimeSinceAgo(stackList[stackName].LastUpdate)
+                LastUpdate: utilities.formatTimeSinceAgo(stackList[stackName].LastUpdate || Date.now())
             })
         })
         utilities.printTableWithJSON(tableData)
@@ -553,7 +554,7 @@ const showAvailableStacks = (options, promptDescription) => {
 
 showBoxBanner()
 
-var argv = require('yargs').usage('simplify-cli init | deploy | destroy | show [options]')
+var argv = require('yargs').usage('simplify-cli init | login | deploy | destroy | list [options]')
     .string('help').describe('help', 'Display Help for a specific command')
     .string('name').describe('name', 'Specify a name for the created project')
     .string('template').describe('template', 'Init nodejs or python template')
@@ -574,10 +575,10 @@ var argv = require('yargs').usage('simplify-cli init | deploy | destroy | show [
     .string('composer').describe('composer', 'multistacks composer to deploy')
     .demandOption(['c', 'p', 's']).demandCommand(1).argv;
 
-var cmdOPS = (argv._[0] || 'deploy').toUpperCase()
+var cmdOPS = (argv._[0] || 'list').toUpperCase()
 var optCMD = (argv._.length > 1 ? argv._[1]: undefined)
 var cmdArg = argv['stack'] || argv['function'] || optCMD
-var cmdType = cmdArg ? fs.existsSync(path.resolve(cmdArg, "template.yaml")) ? "CF-Stack" : "Function" : undefined
+var cmdType = cmdArg ? fs.existsSync(path.resolve(argv.location, cmdArg, "template.yaml")) ? "CF-Stack" : "Function" : undefined
 
 if (cmdOPS === "DEPLOY") {
     if (cmdArg !== undefined) {
@@ -633,7 +634,9 @@ if (cmdOPS === "DEPLOY") {
             envFile: argv['env-file']
         }, `Select a ${CPROMPT}stack${CRESET} or ${CPROMPT}function${CRESET} to destroy with command: simplify-cli destroy [--stack or --function] name`)
     }
-} else if (cmdOPS === "SHOW") {
+} else if (cmdOPS === "LOGIN") {
+    
+} else if (cmdOPS === "LIST") {
     printListingDialog({
             regionName: argv.region,
             configFile: argv.config,
@@ -644,9 +647,9 @@ if (cmdOPS === "DEPLOY") {
     const templateName = argv.template || optCMD
     if (typeof templateName === "undefined") {
         if (typeof argv.help !== "undefined") {
-            showTemplates("template/functions", `\nCreate a deployment template: simplify-cli init [--template=]NodeJS | Python\n`)
-            showTemplates("template/stacks", `\nCreate associated CF stack: simplify-cli init [--template=]CloudFront | CognitoUser...\n`)
-            console.log(`\n *`, `Or install from URL: simplify-cli init [--template=]https://github.com/awslabs/...template.yml \n`)
+            showTemplates("template/functions", `\nCreate a function template: simplify-cli init [--template=]NodeJS | Python\n`)
+            showTemplates("template/stacks", `\nOr create a deployment stack: simplify-cli init [--template=]CloudFront | CognitoUser...\n`)
+            console.log(`\n *`, `Direct install from URL: simplify-cli init [--template=]https://github.com/awslabs/...template.yml \n`)
         } else {
             createStackOnInit({
                 PROJECT_NAME: readlineSync.question(` - ${CPROMPT}What is your Project name?${CRESET} (${process.env.PROJECT_NAME || 'starwars'}) `) || `${process.env.PROJECT_NAME || 'starwars'}`,
@@ -659,15 +662,10 @@ if (cmdOPS === "DEPLOY") {
             console.log(`\n *`, `Type '--help' with INIT to find more: simplify-cli init --help \n`)
         }
     } else {
-        createStackOnInit(templateName, process.env)
+        createStackOnInit(templateName, argv.location, process.env)
     }
-} else if (cmdOPS === "LIST") {
-    printListingDialog({
-        regionName: argv.region,
-        configFile: argv.config,
-        envName: argv.env,
-        envFile: argv['env-file']
-    })
+} else {
+    console.log(`\n * Command ${cmdOPS} is not supported. Try with these commands: init | list | login | deploy | destroy \n`)
 }
 
 module.exports = {

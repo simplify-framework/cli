@@ -1,0 +1,1 @@
+A CloudWatch Log reader function based on NodeJS 12.x.
