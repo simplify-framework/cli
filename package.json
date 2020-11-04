@@ -1,6 +1,6 @@
 {
   "name": "simplify-cli",
-  "version": "0.1.21",
+  "version": "0.1.22",
   "description": "Serverless CLI - Function as a Service",
   "main": "cli.js",
   "bin": {
@@ -9,19 +9,21 @@
   "scripts": {},
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/simplify-framework/serverless.git"
+    "url": "git+https://github.com/simplify-framework/cli.git"
   },
   "keywords": [
     "simplify-framework",
-    "serverless",
+    "cloudformation",
+    "boilerplate",
+    "template",
     "lambda"
   ],
   "author": "Duong Dinh Cuong",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/simplify-framework/serverless/issues"
+    "url": "https://github.com/simplify-framework/cli/issues"
   },
-  "homepage": "https://github.com/simplify-framework/serverless#readme",
+  "homepage": "https://github.com/simplify-framework/cli#readme",
   "dependencies": {
     "dotenv": "^8.2.0",
     "readline-sync": "^1.4.10",
