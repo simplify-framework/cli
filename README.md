@@ -1,32 +1,34 @@
-# Simplify Framework - Serverless CLI
+# Simplify Framework - Easy Deployment
 
 ![NPM Downloads](https://img.shields.io/npm/dw/simplify-cli)
-![Package Version](https://img.shields.io/github/package-json/v/simplify-framework/serverless?color=green)
+![Package Version](https://img.shields.io/github/package-json/v/simplify-framework/cli?color=green)
 
 *A minimalist and optimistic serverless framwork for managing AWS Lambda functions.*
 
 `npm install -g simplify-cli`
 
 ```bash
+$ simplify-cli init --help
 ╓───────────────────────────────────────────────────────────────╖
-║              Simplify Framework - Version 0.1.42              ║
+║                 Simplify CLI - Version 0.1.21                 ║
 ╙───────────────────────────────────────────────────────────────╜
-simplify-cli init | deploy | destroy [options]
 
-Options:
-  --help        Show help                                              [boolean]
-  --version     Show version number                                    [boolean]
-  --update      force update function code            [boolean] [default: false]
-  --publish     force publish with a version          [boolean] [default: false]
-  --layer       deploy source folder as layer         [boolean] [default: false]
-  --location    stack folder to deploy              [string] [default: "stacks"]
-  --stack-name  stack name to deploy                                    [string]
-  --template    Init nodejs or python template      [string] [default: "nodejs"]
-  -c, --config  function configuration                       [string] [required]
-  -p, --policy  function policy to attach                    [string] [required]
-  -r, --role    function policy to attach                               [string]
-  -s, --source  function source to deploy                    [string] [required]
-  -e, --env     environment variable file                               [string]
+Create a deployment template: simplify-cli init [--template=]NodeJS | Python
+
+ 1. Detector - A lambda function based on Python 3.7 runtime with default Role and Policy configuration.
+ 2. Lambda - A lambda function based on NodeJS 12.x runtime with default Role and Policy configuration.
+
+Create associated CF stack: simplify-cli init [--template=]CloudFront | CognitoUser...
+
+ 1. CloudFront - A template to create a CDN using CloudFront for S3 Website and HTTP APIs origin.
+ 2. CognitoUser - A template to create a Cognito UserPool, Cognito Indentity and Pinpoint analytics.
+ 3. EventScheduler - A CloudWatch scheduler event for triggering a lambda function with schedule expresion.
+ 4. HttpRestapi - A template to create a REST API Gateway that work with Lambda functions.
+ 5. LambdaEdge - A template to create a CDN using CloudFront that works with LambdaEdge function.
+ 6. Randomness - A Lambda randomness source to use in common case for other Lambdas
+ 7. WebsiteS3 - An HTML website hosting by Amazon S3 Bucket that support publishing extension script.
+
+ * Or install from URL: simplify-cli init [--template=]https://github.com/awslabs/...template.yml
  ```
   
 ### Init your environment
