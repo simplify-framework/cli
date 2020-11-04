@@ -636,7 +636,7 @@ if (cmdOPS === "DEPLOY") {
     const templateName = argv.template || optCMD
     if (typeof templateName === "undefined") {
         if (typeof argv.help !== "undefined") {
-            showTemplates("template/functions", `\nCreate serverless function: simplify-cli init [--template=]NodeJS | Python\n`)
+            showTemplates("template/functions", `\nCreate a deployment template: simplify-cli init [--template=]NodeJS | Python\n`)
             showTemplates("template/stacks", `\nCreate associated CF stack: simplify-cli init [--template=]CloudFront | CognitoUser...\n`)
             console.log(`\n *`, `Or install from URL: simplify-cli init [--template=]https://github.com/awslabs/...template.yml \n`)
         } else {
