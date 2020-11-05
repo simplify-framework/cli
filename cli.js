@@ -12,7 +12,7 @@ const provider = require('simplify-sdk/provider');
 const readlineSync = require('readline-sync');
 const { options } = require('yargs');
 const { authenticate, registerUser, confirmRegistration, getCurrentSession, userSignOut } = require('./cognito')
-
+const PLAN_VERSIONS = { "BASIC": "Community", "STANDARD": "Business", "PREMIUM": "Enterprise" }
 var functionMeta = { lashHash256: null }
 const opName = `executeCLI`
 const CGREEN = '\x1b[32m'
@@ -473,7 +473,7 @@ const printListingDialog = function (options, prompt) {
     const stackList = fs.existsSync(stackConfigFile) ? JSON.parse(fs.readFileSync(stackConfigFile)) : {}
     let tableData = []
     if (Object.keys(stackList).length > 0) {
-        console.log(`\n * ${prompt ? prompt : `Listing installed components for ${CNOTIF}${envName || process.env.DEPLOYMENT_ENV}${CDONE} environment \n`}`)
+        console.log(`\n - ${prompt ? prompt : `Listing installed components for ${CNOTIF}${envName || process.env.DEPLOYMENT_ENV}${CDONE} environment \n`}`)
         Object.keys(stackList).map((stackName, idx) => {
             tableData.push({
                 Index: idx + 1,
@@ -487,7 +487,7 @@ const printListingDialog = function (options, prompt) {
         })
         utilities.printTableWithJSON(tableData)
     } else {
-        console.log(`\n * Listing installed components for ${CNOTIF}${envName || process.env.DEPLOYMENT_ENV}${CDONE} environment: (empty) \n`)
+        console.log(`\n - Listing installed components for ${CNOTIF}${envName || process.env.DEPLOYMENT_ENV}${CDONE} environment: (empty) \n`)
     }
     return tableData
 }
@@ -523,7 +523,7 @@ const showAvailableStacks = (options, promptDescription) => {
     let stackType = ""
     let indexOfTemplate = 0
     let tableStackData = []
-    console.log(`\n * ${promptDescription}\n`)
+    console.log(`\n - ${promptDescription}\n`)
     getDirectories(path.resolve('.')).map((template) => {
         const excludeFolders = [".simplify", ".git", ".github", "dist", "node_modules", "output"].indexOf(template) == -1 ? false : true
         if (!excludeFolders && !template.startsWith('.') && !template.startsWith('_')) {
@@ -582,6 +582,25 @@ var cmdOPS = (argv._[0] || 'list').toUpperCase()
 var optCMD = (argv._.length > 1 ? argv._[1] : undefined)
 var cmdArg = argv['stack'] || argv['function'] || optCMD
 var cmdType = cmdArg ? fs.existsSync(path.resolve(argv.location, cmdArg, "template.yaml")) ? "CF-Stack" : "Function" : undefined
+
+const showSubscriptionPlan = function(userSession) {
+    const currentPlan = (userSession.getIdToken().payload[`subscription`] || 'Basic')
+    const currentVersion = PLAN_VERSIONS[currentPlan.toUpperCase()] || 'Community'
+    console.log(`\n`, ` * ${CPROMPT}Welcome back${CRESET} : ${userSession.getIdToken().payload[`name`]}`)
+    console.log(`  * ${CPROMPT}Subscription${CRESET} : ${CDONE}${currentPlan}${CRESET} Plan - ${currentVersion} Version`)
+    if (currentPlan.toUpperCase() == 'BASIC') {
+        console.log(`  * ${CGREEN}Change to standard plan with 10$ monthly for advanced resource${CRESET} : simplify-cli upgrade --standard`)
+        console.log(`  * ${CRESET}Or upgrade to premium plan with 99$ monthly for CodeMe support${CRESET} : simplify-cli upgrade --premium`)
+    }
+    if (currentPlan.toUpperCase() == 'STANDARD') {
+        console.log(`  * ${CRESET}Change to basic plan (FREE) with 0$ monthly for basic resource${CRESET} : simplify-cli upgrade --basic`)
+        console.log(`  * ${CGREEN}Or upgrade to premium plan with 99$ monthly for CodeMe support${CRESET} : simplify-cli upgrade --premium`)
+    }
+    if (currentPlan.toUpperCase() == 'PREMIUM') {
+        console.log(`  * ${CRESET}Change to basic plan (FREE) with 0$ monthly for basic resource${CRESET} : simplify-cli upgrade --basic`)
+        console.log(`  * ${CRESET}Change to standard plan with 10$ monthly for advanced resource${CRESET} : simplify-cli upgrade --standard`)
+    }
+}
 
 const processCLI = function (cmdRun, session) {
     if (cmdRun === "DEPLOY") {
@@ -644,9 +663,7 @@ const processCLI = function (cmdRun, session) {
         const username = readlineSync.questionEMail(` - ${CPROMPT}Your identity${CRESET} : `, { limitMessage: " * Your login email is invalid." })
         const password = readlineSync.question(` - ${CPROMPT}Your password${CRESET} : `, { hideEchoBack: true })
         authenticate(username, password).then(function (userSession) {
-            console.log(`\n`, ` * ${CPROMPT}Welcome back${CRESET} : ${userSession.getIdToken().payload[`name`]}`)
-            console.log(`  * ${CPROMPT}Subscription${CRESET} : ${userSession.getIdToken().payload[`subscription`] || 'Basic Plan - Community Version'}`)
-            console.log(`  * ${CGREEN}Upgrade to premium plan with 100$ monthly for CodeMe support${CRESET} : simplify-cli upgrade`, `\n`)
+            showSubscriptionPlan(userSession)
         }).catch(error => console.error(error))
     } else if (cmdRun === "REGISTER") {
         const fullname = readlineSync.question(` - ${CPROMPT}What is your name${CRESET} : `, { limitMessage: " * Your name is invalid." })
@@ -717,6 +734,7 @@ if (!fs.existsSync(path.resolve(argv.config || 'config.json'))) {
         if (["LOGIN", "REGISTER"].indexOf(cmdOPS) == -1) {
             getCurrentSession().then(session => {
                 if (session && session.isValid()) {
+                    showSubscriptionPlan(session)
                     processCLI(cmdOPS, session)
                 } else {
                     console.log(`${CPROMPT}Session is invalid${CRESET}. Please re-login.`)

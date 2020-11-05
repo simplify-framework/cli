@@ -24,7 +24,7 @@ const registerUser = function (name, email, password) {
     }));
     attributeList.push(new AmazonCognitoIdentity.CognitoUserAttribute({
         Name: 'subscription',
-        Value: 'Basic Plan - Community Version',
+        Value: 'Basic',
     }));
     return new Promise(function (resolve, reject) {
         userPool.signUp(v4(), password, attributeList, null, function (err, result) {
