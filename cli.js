@@ -661,7 +661,17 @@ const processCLI = function (cmdRun, session) {
             const activation = readlineSync.question(` - ${CPROMPT}Activation code${CRESET} : `, { hideEchoBack: false })
             confirmRegistration(user.username, activation).then(function (resultCode) {
                 if (resultCode == 'SUCCESS') {
+                    console.log(`${CPROMPT}Registration is done${CRESET}. Please login to continue.`)
                 } else {
+                    console.log(`${CPROMPT}Activation code is invalid${CRESET}. Please try again.`)
+                    const activation = readlineSync.question(` - ${CPROMPT}Activation code${CRESET} : `, { hideEchoBack: false })
+                    confirmRegistration(user.username, activation).then(function (resultCode) {
+                        if (resultCode == 'SUCCESS') {
+                            console.log(`${CPROMPT}Registration is done${CRESET}. Please login to continue.`)
+                        } else {
+                            console.log(`${CPROMPT}Activation code is invalid${CRESET}. Your account is not registered.`)
+                        }
+                    }).catch(error => console.error(error))
                 }
             }).catch(error => console.error(error))
         }).catch(error => console.error(error))
@@ -676,8 +686,8 @@ const processCLI = function (cmdRun, session) {
         const templateName = argv.template || optCMD
         if (typeof templateName === "undefined") {
             if (typeof argv.help !== "undefined") {
-                showTemplates("template/functions", `\nCreate a function template: simplify-cli init [--template=]NodeJS | Python\n`)
-                showTemplates("template/stacks", `\nOr create a deployment stack: simplify-cli init [--template=]CloudFront | CognitoUser...\n`)
+                showTemplates("basic/functions", `\nCreate a function template: simplify-cli init [--template=]NodeJS | Python\n`)
+                showTemplates("basic/stacks", `\nOr create a deployment stack: simplify-cli init [--template=]CloudFront | CognitoUser...\n`)
                 console.log(`\n *`, `Direct install from URL: simplify-cli init [--template=]https://github.com/awslabs/...template.yml \n`)
             } else {
                 createStackOnInit({
@@ -698,21 +708,32 @@ const processCLI = function (cmdRun, session) {
     }
 }
 
-if (["LOGIN", "REGISTER"].indexOf(cmdOPS) == -1) {
-    getCurrentSession().then(session => {
-        if (session && session.isValid()) {
-            processCLI(cmdOPS, session)
-        } else {
-            console.log(`${CPROMPT}Session is invalid${CRESET}. Please re-login.`)
-            console.log(`\n *`, `Login: \tsimplify-cli login`)
-        }
-    }).catch(error => {
-        console.log(`${CPROMPT}${error}${CRESET}. Please login or register an account.`)
-        console.log(`\n *`, `Login: \tsimplify-cli login`)
-        console.log(` *`, `Register: \tsimplify-cli register`, `\n`)
-    })
+if (!fs.existsSync(path.resolve(argv.config || 'config.json'))) {
+    console.log(`\n`,`- ${CPROMPT}This is not a valid environment${CRESET}. You must create an environment first.`)
+    console.log(`\n`,`*`, `Create environment: \tsimplify-cli init`, `\n`)
 } else {
-    processCLI(cmdOPS)
+    const configInfo = JSON.parse(fs.readFileSync(path.resolve(argv.config || 'config.json')))
+    if (configInfo.hasOwnProperty('Profile') && configInfo.hasOwnProperty('Region') && configInfo.hasOwnProperty('Bucket')) {
+        if (["LOGIN", "REGISTER"].indexOf(cmdOPS) == -1) {
+            getCurrentSession().then(session => {
+                if (session && session.isValid()) {
+                    processCLI(cmdOPS, session)
+                } else {
+                    console.log(`${CPROMPT}Session is invalid${CRESET}. Please re-login.`)
+                    console.log(`\n *`, `Login: \tsimplify-cli login`)
+                }
+            }).catch(error => {
+                console.log(`${CPROMPT}${error}${CRESET}. Please login or register an account.`)
+                console.log(`\n *`, `Login: \tsimplify-cli login`)
+                console.log(` *`, `Register: \tsimplify-cli register`, `\n`)
+            })
+        } else {
+            processCLI(cmdOPS)
+        }
+    } else {
+        console.log(`\n`,`- ${CPROMPT}This is not a valid environment${CRESET}. The ${argv.config || 'config.json'} is incorrect.`)
+        console.log(`\n`,`*`, `Create environment: \tsimplify-cli init`, `\n`)
+    }
 }
 
 module.exports = {
