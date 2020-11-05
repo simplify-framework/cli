@@ -1,1 +1,0 @@
-An empty environment base for stack deployment with default variable configuration.

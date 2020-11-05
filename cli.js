@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 'use strict';
+global.crypto = require('crypto')
 const path = require('path')
 const fs = require('fs')
 const fetch = require('node-fetch')
@@ -10,6 +11,8 @@ const utilities = require('simplify-sdk/utilities')
 const provider = require('simplify-sdk/provider');
 const readlineSync = require('readline-sync');
 const { options } = require('yargs');
+const { authenticate, registerUser, confirmRegistration, getCurrentSession, userSignOut } = require('./cognito')
+
 var functionMeta = { lashHash256: null }
 const opName = `executeCLI`
 const CGREEN = '\x1b[32m'
@@ -65,7 +68,7 @@ const deployStack = function (options) {
             ...{ bucketKey: config.Bucket.Key, inputLocalFile: stackYamlFile }
         }).then(function (uploadInfo) {
             function processStackData(stackData) {
-                let outputData = { }
+                let outputData = {}
                 outputData[configStackName] = { "LastUpdate": Date.now(), "Type": "CF-Stack" }
                 stackData.Outputs.map(function (o) {
                     outputData[configStackName][o.OutputKey] = o.OutputValue
@@ -309,7 +312,7 @@ const deployFunction = function (options) {
         }
     }).then(function (data) {
         const writeStackOutput = function (config, data) {
-            let outputData = { }
+            let outputData = {}
             const functionRegion = data.FunctionArn.split(':')[3]
             outputData[functionName || process.env.FUNCTION_NAME] = {
                 LastUpdate: Date.now(),
@@ -554,7 +557,7 @@ const showAvailableStacks = (options, promptDescription) => {
 
 showBoxBanner()
 
-var argv = require('yargs').usage('simplify-cli init | login | deploy | destroy | list [options]')
+var argv = require('yargs').usage('simplify-cli regiter | login | logout | init | deploy | destroy | list [options]')
     .string('help').describe('help', 'Display Help for a specific command')
     .string('name').describe('name', 'Specify a name for the created project')
     .string('template').describe('template', 'Init nodejs or python template')
@@ -576,96 +579,140 @@ var argv = require('yargs').usage('simplify-cli init | login | deploy | destroy 
     .demandOption(['c', 'p', 's']).demandCommand(1).argv;
 
 var cmdOPS = (argv._[0] || 'list').toUpperCase()
-var optCMD = (argv._.length > 1 ? argv._[1]: undefined)
+var optCMD = (argv._.length > 1 ? argv._[1] : undefined)
 var cmdArg = argv['stack'] || argv['function'] || optCMD
 var cmdType = cmdArg ? fs.existsSync(path.resolve(argv.location, cmdArg, "template.yaml")) ? "CF-Stack" : "Function" : undefined
 
-if (cmdOPS === "DEPLOY") {
-    if (cmdArg !== undefined) {
-        (cmdType === "Function" ? deployFunction : deployStack)({
-            regionName: argv.region,
-            functionName: cmdArg,
-            configFile: argv.config,
-            configStackName: cmdArg,
-            configStackFolder: argv.location,
-            envName: argv.env,
-            envFile: argv['env-file'],
-            dataFile: argv.data,
-            roleFile: argv.role,
-            policyFile: argv.policy,
-            sourceDir: argv.source,
-            forceUpdate: argv.update,
-            asFunctionLayer: argv.layer,
-            publishNewVersion: argv.publish
-        })
-    } else {
-        showAvailableStacks({
-            regionName: argv.region,
-            configFile: argv.config,
-            envName: argv.env,
-            envFile: argv['env-file']
-        }, `Available ${CPROMPT}stack${CRESET} and ${CPROMPT}function${CRESET} to deploy with command: simplify-cli deploy [--stack or --function] name`)
-    }
+const processCLI = function (cmdRun, session) {
+    if (cmdRun === "DEPLOY") {
+        if (cmdArg !== undefined) {
+            (cmdType === "Function" ? deployFunction : deployStack)({
+                regionName: argv.region,
+                functionName: cmdArg,
+                configFile: argv.config,
+                configStackName: cmdArg,
+                configStackFolder: argv.location,
+                envName: argv.env,
+                envFile: argv['env-file'],
+                dataFile: argv.data,
+                roleFile: argv.role,
+                policyFile: argv.policy,
+                sourceDir: argv.source,
+                forceUpdate: argv.update,
+                asFunctionLayer: argv.layer,
+                publishNewVersion: argv.publish
+            })
+        } else {
+            showAvailableStacks({
+                regionName: argv.region,
+                configFile: argv.config,
+                envName: argv.env,
+                envFile: argv['env-file']
+            }, `Available ${CPROMPT}stack${CRESET} and ${CPROMPT}function${CRESET} to deploy with command: simplify-cli deploy [--stack or --function] name`)
+        }
 
-} else if (cmdOPS === "DESTROY") {
-    if (argv['stack'] !== undefined) {
-        destroyStack({
-            regionName: argv.region,
-            configFile: argv.config,
-            envName: argv.env,
-            envFile: argv['env-file'],
-            configStackFolder: argv.location,
-            configStackName: argv['stack']
+    } else if (cmdRun === "DESTROY") {
+        if (argv['stack'] !== undefined) {
+            destroyStack({
+                regionName: argv.region,
+                configFile: argv.config,
+                envName: argv.env,
+                envFile: argv['env-file'],
+                configStackFolder: argv.location,
+                configStackName: argv['stack']
+            })
+        } else if (argv['function'] !== undefined) {
+            destroyFunction({
+                regionName: argv.region,
+                configFile: argv.config,
+                envName: argv.env,
+                envFile: argv['env-file'],
+                functionName: argv.function,
+                withFunctionLayer: argv.layer
+            })
+        } else {
+            printListingDialog({
+                regionName: argv.region,
+                configFile: argv.config,
+                envName: argv.env,
+                envFile: argv['env-file']
+            }, `Select a ${CPROMPT}stack${CRESET} or ${CPROMPT}function${CRESET} to destroy with command: simplify-cli destroy [--stack or --function] name`)
+        }
+    } else if (cmdRun === "LOGOUT") {
+        userSignOut(session.getIdToken().payload['cognito:username'])
+    } else if (cmdRun === "LOGIN") {
+        const username = readlineSync.questionEMail(` - ${CPROMPT}Your identity${CRESET} : `, { limitMessage: " * Your login email is invalid." })
+        const password = readlineSync.question(` - ${CPROMPT}Your password${CRESET} : `, { hideEchoBack: true })
+        authenticate(username, password).then(function (userSession) {
+            console.log(`\n`, ` * ${CPROMPT}Welcome back${CRESET} : ${userSession.getIdToken().payload[`name`]}`)
+            console.log(`  * ${CPROMPT}Subscription${CRESET} : ${userSession.getIdToken().payload[`subscription`] || 'Basic Plan - Community Version'}`)
+            console.log(`  * ${CGREEN}Upgrade to premium plan with 100$ monthly for CodeMe support${CRESET} : simplify-cli upgrade`, `\n`)
+        }).catch(error => console.error(error))
+    } else if (cmdRun === "REGISTER") {
+        const fullname = readlineSync.question(` - ${CPROMPT}What is your name${CRESET} : `, { limitMessage: " * Your name is invalid." })
+        const username = readlineSync.questionEMail(` - ${CPROMPT}Registered email${CRESET} : `, { limitMessage: " * Your registered email is invalid." })
+        const password = readlineSync.questionNewPassword(` - ${CPROMPT}New password${CRESET} : `, {
+            hideEchoBack: true,
+            charlist: '$<!-~>',
+            min: 8, max: 24,
+            confirmMessage: ` - ${CPROMPT}Confirm password${CRESET} : `
         })
-    } else if (argv['function'] !== undefined) {
-        destroyFunction({
-            regionName: argv.region,
-            configFile: argv.config,
-            envName: argv.env,
-            envFile: argv['env-file'],
-            functionName: argv.function,
-            withFunctionLayer: argv.layer
-        })
-    } else {
+        registerUser(fullname, username, password).then(function (user) {
+            const activation = readlineSync.question(` - ${CPROMPT}Activation code${CRESET} : `, { hideEchoBack: false })
+            confirmRegistration(user.username, activation).then(function (resultCode) {
+                if (resultCode == 'SUCCESS') {
+                } else {
+                }
+            }).catch(error => console.error(error))
+        }).catch(error => console.error(error))
+    } else if (cmdRun === "LIST") {
         printListingDialog({
             regionName: argv.region,
             configFile: argv.config,
             envName: argv.env,
             envFile: argv['env-file']
-        }, `Select a ${CPROMPT}stack${CRESET} or ${CPROMPT}function${CRESET} to destroy with command: simplify-cli destroy [--stack or --function] name`)
-    }
-} else if (cmdOPS === "LOGIN") {
-    
-} else if (cmdOPS === "LIST") {
-    printListingDialog({
-            regionName: argv.region,
-            configFile: argv.config,
-            envName: argv.env,
-            envFile: argv['env-file']
         }, `Deployed ${CPROMPT}stacks${CRESET} and ${CPROMPT}functions${CRESET} managed by Simplify CLI:`)
-} else if (cmdOPS === "INIT") {
-    const templateName = argv.template || optCMD
-    if (typeof templateName === "undefined") {
-        if (typeof argv.help !== "undefined") {
-            showTemplates("template/functions", `\nCreate a function template: simplify-cli init [--template=]NodeJS | Python\n`)
-            showTemplates("template/stacks", `\nOr create a deployment stack: simplify-cli init [--template=]CloudFront | CognitoUser...\n`)
-            console.log(`\n *`, `Direct install from URL: simplify-cli init [--template=]https://github.com/awslabs/...template.yml \n`)
+    } else if (cmdRun === "INIT") {
+        const templateName = argv.template || optCMD
+        if (typeof templateName === "undefined") {
+            if (typeof argv.help !== "undefined") {
+                showTemplates("template/functions", `\nCreate a function template: simplify-cli init [--template=]NodeJS | Python\n`)
+                showTemplates("template/stacks", `\nOr create a deployment stack: simplify-cli init [--template=]CloudFront | CognitoUser...\n`)
+                console.log(`\n *`, `Direct install from URL: simplify-cli init [--template=]https://github.com/awslabs/...template.yml \n`)
+            } else {
+                createStackOnInit({
+                    PROJECT_NAME: readlineSync.question(` - ${CPROMPT}What is your Project name?${CRESET} (${process.env.PROJECT_NAME || 'starwars'}) `) || `${process.env.PROJECT_NAME || 'starwars'}`,
+                    DEPLOYMENT_BUCKET: readlineSync.question(` - ${CPROMPT}What is your Bucket name?${CRESET} (${process.env.DEPLOYMENT_BUCKET || 'starwars-0920'}) `) || `${process.env.DEPLOYMENT_BUCKET || 'starwars-0920'}`,
+                    DEPLOYMENT_ACCOUNT: readlineSync.question(` - ${CPROMPT}What is your Account Id?${CRESET} (${process.env.DEPLOYMENT_ACCOUNT || '1234567890'}) `) || `${process.env.DEPLOYMENT_ACCOUNT || '1234567890'}`,
+                    DEPLOYMENT_PROFILE: readlineSync.question(` - ${CPROMPT}What is your Account profile?${CRESET} (${process.env.DEPLOYMENT_PROFILE || 'simplify-eu'}) `) || `${process.env.DEPLOYMENT_PROFILE || 'simplify-eu'}`,
+                    DEPLOYMENT_REGION: readlineSync.question(` - ${CPROMPT}What is your Default region?${CRESET} (${process.env.DEPLOYMENT_REGION || 'eu-central-1'}) `) || `${process.env.DEPLOYMENT_REGION || 'eu-central-1'}`,
+                    DEPLOYMENT_ENV: readlineSync.question(` - ${CPROMPT}What is your Environment name?${CRESET} (${process.env.DEPLOYMENT_ENV || 'demo'}) `) || `${process.env.DEPLOYMENT_ENV || 'demo'}`
+                })
+                console.log(`\n *`, `Type '--help' with INIT to find more: simplify-cli init --help \n`)
+            }
         } else {
-            createStackOnInit({
-                PROJECT_NAME: readlineSync.question(` - ${CPROMPT}What is your Project name?${CRESET} (${process.env.PROJECT_NAME || 'starwars'}) `) || `${process.env.PROJECT_NAME || 'starwars'}`,
-                DEPLOYMENT_BUCKET: readlineSync.question(` - ${CPROMPT}What is your Bucket name?${CRESET} (${process.env.DEPLOYMENT_BUCKET || 'starwars-0920'}) `) || `${process.env.DEPLOYMENT_BUCKET || 'starwars-0920'}`,
-                DEPLOYMENT_ACCOUNT: readlineSync.question(` - ${CPROMPT}What is your Account Id?${CRESET} (${process.env.DEPLOYMENT_ACCOUNT || '1234567890'}) `) || `${process.env.DEPLOYMENT_ACCOUNT || '1234567890'}`,
-                DEPLOYMENT_PROFILE: readlineSync.question(` - ${CPROMPT}What is your Account profile?${CRESET} (${process.env.DEPLOYMENT_PROFILE || 'simplify-eu'}) `) || `${process.env.DEPLOYMENT_PROFILE || 'simplify-eu'}`,
-                DEPLOYMENT_REGION: readlineSync.question(` - ${CPROMPT}What is your Default region?${CRESET} (${process.env.DEPLOYMENT_REGION || 'eu-central-1'}) `) || `${process.env.DEPLOYMENT_REGION || 'eu-central-1'}`,
-                DEPLOYMENT_ENV: readlineSync.question(` - ${CPROMPT}What is your Environment name?${CRESET} (${process.env.DEPLOYMENT_ENV || 'demo'}) `) || `${process.env.DEPLOYMENT_ENV || 'demo'}`
-            })
-            console.log(`\n *`, `Type '--help' with INIT to find more: simplify-cli init --help \n`)
+            createStackOnInit(templateName, argv.location, process.env)
         }
     } else {
-        createStackOnInit(templateName, argv.location, process.env)
+        console.log(`\n * Command ${cmdRun} is not supported. Try with these commands: init | list | login | deploy | destroy \n`)
     }
+}
+
+if (["LOGIN", "REGISTER"].indexOf(cmdOPS) == -1) {
+    getCurrentSession().then(session => {
+        if (session && session.isValid()) {
+            processCLI(cmdOPS, session)
+        } else {
+            console.log(`${CPROMPT}Session is invalid${CRESET}. Please re-login.`)
+            console.log(`\n *`, `Login: \tsimplify-cli login`)
+        }
+    }).catch(error => {
+        console.log(`${CPROMPT}${error}${CRESET}. Please login or register an account.`)
+        console.log(`\n *`, `Login: \tsimplify-cli login`)
+        console.log(` *`, `Register: \tsimplify-cli register`, `\n`)
+    })
 } else {
-    console.log(`\n * Command ${cmdOPS} is not supported. Try with these commands: init | list | login | deploy | destroy \n`)
+    processCLI(cmdOPS)
 }
 
 module.exports = {

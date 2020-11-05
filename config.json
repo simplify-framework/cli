@@ -1,9 +1,0 @@
-{
-    "Profile": "${DEPLOYMENT_PROFILE}",
-    "Region": "${DEPLOYMENT_REGION}",
-    "Bucket": {
-        "Name": "${DEPLOYMENT_BUCKET}-${DEPLOYMENT_REGION}",
-        "Key": "builds/${DATE_TODAY}"
-    },
-    "OutputFolder": ".simplify/${DEPLOYMENT_ENV}"
-}
