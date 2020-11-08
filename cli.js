@@ -171,7 +171,7 @@ const deployStack = function (options) {
             function reviewParameters(resultParameters, stackParamteres) {
                 let redoParamIndex = -1
                 do {
-                    const reviewOptions = Object.keys(resultParameters).map(x => `${x} = ${resultParameters[x]}`)
+                    const reviewOptions = Object.keys(resultParameters).map(x => `${x} = ${resultParameters[x] || '(not set)'}`)
                     redoParamIndex = readlineSync.keyInSelect(reviewOptions, `Do you want to change any of those parameters?`, { cancel: `${CBRIGHT}Start to deploy${CRESET} - (No change)` })
                     if (redoParamIndex !== -1) {
                         selectParameter(Object.keys(resultParameters)[redoParamIndex], "String", resultParameters, stackParamteres)
