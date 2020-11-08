@@ -195,13 +195,13 @@ const deployStack = function (options) {
                     reviewParameters(resultParameters, stackParamteres)
                     const finalResult = mappingParameters(docYaml, resultParameters)
                     if (!finalResult.resultErrors) {
-                        saveParameters(resultParameters)
                         createStack(templateURL, finalResult.resultParameters, stackPluginModule)
                     } else {
                         finalResult.resultErrors.map(error => {
                             simplify.consoleWithErrors(`${opName}-Verification`, `(${stackFullName}) name=${error.name} type=${error.type} is not set.`)
                         })
                     }
+                    saveParameters(resultParameters)
                 }
             }
 
