@@ -109,7 +109,6 @@ const deployStack = function (options) {
                     ...{
                         stackName: `${stackFullName}`,
                         stackParameters: {
-                            Environment: `${process.env.DEPLOYMENT_ENV}`,
                             ...parameters
                         },
                         stackTemplate: stackTemplate
@@ -776,12 +775,12 @@ const processCLI = function (cmdRun, session) {
                 console.log(`\n *`, `Direct install from URL: simplify-cli init [--template=]https://github.com/awslabs/...template.yml \n`)
             } else {
                 createStackOnInit({
-                    PROJECT_NAME: readlineSync.question(` - ${CPROMPT}What is your Project name?${CRESET} (${process.env.PROJECT_NAME || 'starwars'}) `) || `${process.env.PROJECT_NAME || 'starwars'}`,
-                    DEPLOYMENT_BUCKET: readlineSync.question(` - ${CPROMPT}What is your Bucket name?${CRESET} (${process.env.DEPLOYMENT_BUCKET || 'starwars-0920'}) `) || `${process.env.DEPLOYMENT_BUCKET || 'starwars-0920'}`,
-                    DEPLOYMENT_ACCOUNT: readlineSync.question(` - ${CPROMPT}What is your Account Id?${CRESET} (${process.env.DEPLOYMENT_ACCOUNT || '1234567890'}) `) || `${process.env.DEPLOYMENT_ACCOUNT || '1234567890'}`,
-                    DEPLOYMENT_PROFILE: readlineSync.question(` - ${CPROMPT}What is your Account profile?${CRESET} (${process.env.DEPLOYMENT_PROFILE || 'simplify-eu'}) `) || `${process.env.DEPLOYMENT_PROFILE || 'simplify-eu'}`,
-                    DEPLOYMENT_REGION: readlineSync.question(` - ${CPROMPT}What is your Default region?${CRESET} (${process.env.DEPLOYMENT_REGION || 'eu-central-1'}) `) || `${process.env.DEPLOYMENT_REGION || 'eu-central-1'}`,
-                    DEPLOYMENT_ENV: readlineSync.question(` - ${CPROMPT}What is your Environment name?${CRESET} (${process.env.DEPLOYMENT_ENV || 'demo'}) `) || `${process.env.DEPLOYMENT_ENV || 'demo'}`
+                    PROJECT_NAME: readlineSync.question(` - ${CPROMPT}Choose a Project name?${CRESET} (${process.env.PROJECT_NAME || 'starwars'}) `) || `${process.env.PROJECT_NAME || 'starwars'}`,
+                    DEPLOYMENT_BUCKET: readlineSync.question(` - ${CPROMPT}Choose an S3 Bucket name?${CRESET} (${process.env.DEPLOYMENT_BUCKET || 'starwars-0920'}) `) || `${process.env.DEPLOYMENT_BUCKET || 'starwars-0920'}`,
+                    DEPLOYMENT_ENV: readlineSync.question(` - ${CPROMPT}Choose an Environment?${CRESET} (${process.env.DEPLOYMENT_ENV || 'demo'}) `) || `${process.env.DEPLOYMENT_ENV || 'demo'}`,
+                    DEPLOYMENT_ACCOUNT: readlineSync.question(` - ${CPROMPT}What is your AWS AccountId?${CRESET} (${process.env.DEPLOYMENT_ACCOUNT || '123456789012'}) `) || `${process.env.DEPLOYMENT_ACCOUNT || '1234567890'}`,
+                    DEPLOYMENT_PROFILE: readlineSync.question(` - ${CPROMPT}What is your AWS Profile?${CRESET} (${process.env.DEPLOYMENT_PROFILE || 'default'}) `) || `${process.env.DEPLOYMENT_PROFILE || 'default'}`,
+                    DEPLOYMENT_REGION: readlineSync.question(` - ${CPROMPT}Where is your AWS Region?${CRESET} (${process.env.DEPLOYMENT_REGION || 'eu-central-1'}) `) || `${process.env.DEPLOYMENT_REGION || 'eu-central-1'}`
                 }, argv.location, process.env)
                 console.log(`\n *`, `Type '--help' with INIT to find more: simplify-cli init --help \n`)
             }
