@@ -200,7 +200,7 @@ const deployStack = function (options) {
                         finalResult.resultErrors.map(error => {
                             const adjustParameter = error.name
                             simplify.consoleWithErrors(`${opName}-Verification`, `(${stackFullName}) name=${adjustParameter} type=${error.type} is not set.`)
-                            finalResult.resultParameters[adjustParameter] = readlineSync.question(`Enter parameter value for ${CPROMPT}${adjustParameter}${CRESET} :`)    
+                            finalResult.resultParameters[adjustParameter] = readlineSync.question(`\n * Enter parameter value for ${CPROMPT}${adjustParameter}${CRESET} :`)    
                         })
                         saveParameters(finalResult.resultParameters)
                         createStack(templateURL, finalResult.resultParameters, stackPluginModule)
