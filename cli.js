@@ -12,7 +12,21 @@ const provider = require('simplify-sdk/provider');
 const readlineSync = require('readline-sync');
 const { options } = require('yargs');
 const { authenticate, registerUser, confirmRegistration, getCurrentSession, userSignOut } = require('./cognito')
-const PLAN_VERSIONS = { "BASIC": "Community", "STANDARD": "Business", "PREMIUM": "Enterprise" }
+const PLAN_DEFINITIONS = {
+    "BASIC": {
+        "Index": 0,
+        "Version": "Community",
+        "Description": "FREE membership with community access to development resources",
+        "Subscription": 0
+    }, 
+    "PREMIUM": {
+        "Index": 1,
+        "Version": "Enterprise",
+        "Description": "10$ per month with unlimited access to productionr ready resources",
+        "Subscription": 10
+    }
+}
+var currentSubscription = "Basic"
 var functionMeta = { lashHash256: null }
 const opName = `executeCLI`
 const CGREEN = '\x1b[32m'
@@ -20,6 +34,12 @@ const CPROMPT = '\x1b[33m'
 const CNOTIF = '\x1b[33m'
 const CRESET = '\x1b[0m'
 const CDONE = '\x1b[37m'
+const CBRIGHT = '\x1b[37m'
+const CUNDERLINE = '\x1b[4m'
+const COLORS = function(name) {
+    const colorCodes = ["\x1b[31m", "\x1b[32m", "\x1b[33m", "\x1b[34m", "\x1b[35m", "\x1b[36m", "\x1b[31m", "\x1b[32m", "\x1b[33m", "\x1b[34m", "\x1b[35m", "\x1b[36m", "\x1b[31m", "\x1b[32m", "\x1b[33m", "\x1b[34m", "\x1b[35m", "\x1b[36m", "\x1b[31m", "\x1b[32m", "\x1b[33m", "\x1b[34m", "\x1b[35m", "\x1b[36m", "\x1b[31m", "\x1b[32m", "\x1b[33m", "\x1b[34m", "\x1b[35m", "\x1b[36m"]
+    return colorCodes[(name.toUpperCase().charCodeAt(0) - 65) % colorCodes.length]
+}
 const envFilePath = path.resolve('.env')
 if (fs.existsSync(envFilePath)) {
     require('dotenv').config({ path: envFilePath })
@@ -53,9 +73,8 @@ const deployStack = function (options) {
     }
     const envOptions = { DEPLOYMENT_ENV: envName, DEPLOYMENT_REGION: regionName }
     var config = simplify.getInputConfig(path.resolve(configFile || 'config.json'), envOptions)
-    const stackConfigFile = path.resolve(config.OutputFolder, 'StackConfig.json')
+    const stackConfigFile = path.resolve(config.OutputFolder, envName || process.env.DEPLOYMENT_ENV, 'StackConfig.json')
     const stackYamlFile = path.resolve(configStackFolder, `${configStackName}`, `template.yaml`)
-    console.log(stackYamlFile)
     if (!fs.existsSync(stackYamlFile)) {
         simplify.finishWithErrors(`${opName}-CheckTemplate`, `${stackYamlFile} not found.`)
     }
@@ -114,14 +133,20 @@ const deployStack = function (options) {
                 let stackParamteres = {}
                 if (fs.existsSync(stackConfigFile)) {
                     stackOutputData = JSON.parse(fs.readFileSync(stackConfigFile))
-                    Object.keys(stackOutputData).map(prefix => {
-                        Object.keys(stackOutputData[prefix]).map(param => {
-                            stackParamteres[`${prefix}${param}`] = stackOutputData[prefix][param]
+                    Object.keys(stackOutputData).map(stackName => {
+                        Object.keys(stackOutputData[stackName]).map(param => {
+                            if (["LastUpdate", "Type"].indexOf(param) == -1) {
+                                stackParamteres[`${stackName}.${CUNDERLINE}${param}${CRESET}`] = stackOutputData[stackName][param]
+                            }
                         })
                     })
                 }
                 Object.keys(docYaml.Parameters).map(paramName => {
-                    resultParameters[paramName] = parameters[paramName] || stackParamteres[paramName] || docYaml.Parameters[paramName].Default
+                    function getSimilarParameter(stackParamteres, paramName) {
+                        let foundParam = stackParamteres[Object.keys(stackParamteres).find(x => paramName == x.replace(/\x1b\[[0-9;]*m/g, "" ).replace(/[\W_]/g,''))]
+                        return foundParam || stackParamteres[Object.keys(stackParamteres).find(x => paramName.indexOf(x.split('.')[1].replace( /\x1b\[[0-9;]*m/g, "" )) >= 0)]
+                    }
+                    resultParameters[paramName] = parameters[paramName] || getSimilarParameter(stackParamteres, paramName) || docYaml.Parameters[paramName].Default
                     if (!resultParameters[paramName]) {
                         if (!resultErrors) resultErrors = []
                         resultErrors.push({
@@ -130,44 +155,80 @@ const deployStack = function (options) {
                         })
                     }
                 })
-                return { resultParameters, resultErrors, stackOutputData }
+                return { resultParameters, resultErrors, stackOutputData, stackParamteres }
             }
+
+            function selectParameter(param, type, resultParameters, stackParamteres) {
+                const options = Object.keys(stackParamteres).map(x => `${x} = ${stackParamteres[x]}`)
+                const index = readlineSync.keyInSelect(options, `Select a value for ${CPROMPT}${param}${CRESET} parameter ?`, { cancel: `${CBRIGHT}Move to next step${CRESET} - (Continue)` })
+                if (index >=0) {
+                    const selectedParam = param
+                    const selectedValue = stackParamteres[Object.keys(stackParamteres)[index]]
+                    resultParameters[selectedParam] = selectedValue
+                }
+            }
+
+            function reviewParameters(resultParameters, stackParamteres) {
+                let redoParamIndex = -1
+                do {
+                    const reviewOptions = Object.keys(resultParameters).map(x => `${x} = ${resultParameters[x]}`)
+                    redoParamIndex = readlineSync.keyInSelect(reviewOptions, `Do you want to change any of those parameters?`, { cancel: `${CBRIGHT}Start to deploy${CRESET} - (No change)` })
+                    if (redoParamIndex !== -1) {
+                        selectParameter(Object.keys(resultParameters)[redoParamIndex], "String", resultParameters, stackParamteres)
+                    }
+                } while(redoParamIndex !==-1)
+            }
+
+            function saveParameters(resultParameters) {
+                fs.writeFileSync(path.resolve(configStackFolder, configStackName, dataFile), JSON.stringify(resultParameters, null, 4))
+            }
+
+            function processParameters(resultErrors, resultParameters, stackParamteres) {
+                if (!resultErrors) {
+                    reviewParameters(resultParameters, stackParamteres)
+                    saveParameters(resultParameters)
+                    createStack(templateURL, resultParameters, stackPluginModule)
+                } else {
+                    resultErrors.map(error => {
+                        selectParameter(error.name, error.type, resultParameters, stackParamteres)
+                    })
+                    reviewParameters(resultParameters, stackParamteres)
+                    const finalResult = mappingParameters(docYaml, resultParameters)
+                    if (!finalResult.resultErrors) {
+                        saveParameters(resultParameters)
+                        createStack(templateURL, finalResult.resultParameters, stackPluginModule)
+                    } else {
+                        finalResult.resultErrors.map(error => {
+                            simplify.consoleWithErrors(`${opName}-Verification`, `(${stackFullName}) name=${error.name} type=${error.type} is not set.`)
+                        })
+                    }
+                }
+            }
+
             var templateURL = uploadInfo.Location
             try {
                 const docYaml = yamlParse(fs.readFileSync(stackYamlFile));
                 var parameters = {
                     Environment: process.env.DEPLOYMENT_ENV
                 }
-                if (fs.existsSync(path.resolve(dataFile))) {
-                    parameters = { ...parameters, ...JSON.parse(fs.readFileSync(path.resolve(dataFile))) }
+                if (fs.existsSync(path.resolve(configStackFolder, configStackName, dataFile))) {
+                    parameters = { ...parameters, ...JSON.parse(fs.readFileSync(path.resolve(configStackFolder, configStackName, dataFile))) }
                 }
                 var stackPluginModule = {}
                 if (fs.existsSync(stackExtension + '.js')) {
                     stackPluginModule = require(stackExtension)
                 }
                 if (typeof stackPluginModule.preCreation === 'function') {
-                    const { resultParameters, stackOutputData } = mappingParameters(docYaml, parameters)
+                    const { resultParameters, stackOutputData, stackParamteres } = mappingParameters(docYaml, parameters)
                     stackPluginModule.preCreation({ simplify, provider, config }, configStackName, resultParameters, docYaml, stackOutputData).then(parameterResult => {
                         const { resultParameters, resultErrors } = mappingParameters(docYaml, parameterResult)
-                        if (!resultErrors) {
-                            simplify.consoleWithMessage(`${opName}-PreCreation`, `${stackExtension + '.js'} - (Executed)`)
-                            createStack(templateURL, resultParameters, stackPluginModule)
-                        } else {
-                            resultErrors.map(error => {
-                                simplify.consoleWithErrors(`${opName}-Verification`, `(${stackFullName}) name=${error.name} type=${error.type} is not set.`)
-                            })
-                        }
+                        simplify.consoleWithMessage(`${opName}-PreCreation`, `${stackExtension + '.js'} - (Executed)`)
+                        processParameters(resultErrors, resultParameters, stackParamteres)
                     })
                 } else {
-                    const { resultParameters, resultErrors } = mappingParameters(docYaml, parameters)
-                    if (!resultErrors) {
-                        simplify.consoleWithMessage(`${opName}-PreCreation`, `${stackExtension + '.js'} - (Skipped)`)
-                        createStack(templateURL, resultParameters, stackPluginModule)
-                    } else {
-                        resultErrors.map(error => {
-                            simplify.consoleWithErrors(`${opName}-Verification`, `(${stackFullName}) name=${error.name} type=${error.type} is not set.`)
-                        })
-                    }
+                    simplify.consoleWithMessage(`${opName}-PreCreation`, `${stackExtension + '.js'} - (Skipped)`)
+                    const { resultParameters, resultErrors, stackParamteres } = mappingParameters(docYaml, parameters)
+                    processParameters(resultErrors, resultParameters, stackParamteres)
                 }
             } catch (error) {
                 simplify.finishWithErrors(`${opName}-LoadYAMLResource:`, getErrorMessage(error))
@@ -184,7 +245,7 @@ const destroyStack = function (options) {
     }
     const envOptions = { DEPLOYMENT_ENV: envName, DEPLOYMENT_REGION: regionName }
     var config = simplify.getInputConfig(path.resolve(configFile || 'config.json'), envOptions)
-    const stackConfigFile = path.resolve(config.OutputFolder, 'StackConfig.json')
+    const stackConfigFile = path.resolve(config.OutputFolder, envName || process.env.DEPLOYMENT_ENV, 'StackConfig.json')
     const stackList = fs.existsSync(stackConfigFile) ? JSON.parse(fs.readFileSync(stackConfigFile)) : {}
     provider.setConfig(config).then(function () {
         function deleteStack(stackName, stackPluginModule) {
@@ -256,14 +317,16 @@ const deployFunction = function (options) {
     }
     const envOptions = { FUNCTION_NAME: functionName, DEPLOYMENT_ENV: envName, DEPLOYMENT_REGION: regionName }
     var config = simplify.getInputConfig(path.resolve(functionName ? functionName : '', configFile || 'config.json'), envOptions)
-    const stackConfigFile = path.resolve(config.OutputFolder, 'StackConfig.json')
+    const stackConfigFile = path.resolve(config.OutputFolder, envName || process.env.DEPLOYMENT_ENV, 'StackConfig.json')
     var policyDocument = simplify.getContentFile(path.resolve(functionName ? functionName : '', policyFile || 'policy.json'), envOptions)
     var assumeRoleDocument = simplify.getContentFile(path.resolve(functionName ? functionName : '', roleFile || 'role.json'), envOptions)
     if (!fs.existsSync(path.resolve(config.OutputFolder))) {
         fs.mkdirSync(path.resolve(config.OutputFolder), { recursive: true })
     }
-    if (fs.existsSync(path.resolve(config.OutputFolder, `${config.Function.FunctionName}.hash`))) {
-        functionMeta.lashHash256 = fs.readFileSync(path.resolve(config.OutputFolder, `${config.Function.FunctionName}.hash`)).toString()
+    const outputFunctionFilePath = path.resolve(config.OutputFolder, `${envName || process.env.DEPLOYMENT_ENV}`, `${functionName || process.env.FUNCTION_NAME}.json`)
+    const hashFunctionFilePath = path.resolve(config.OutputFolder, `${envName || process.env.DEPLOYMENT_ENV}`, `${functionName || process.env.FUNCTION_NAME}.hash`)
+    if (fs.existsSync(hashFunctionFilePath)) {
+        functionMeta.lashHash256 = fs.readFileSync(hashFunctionFilePath).toString()
     }
     return provider.setConfig(config).then(_ => {
         const roleName = `${config.Function.FunctionName}Role`
@@ -351,14 +414,14 @@ const deployFunction = function (options) {
                     }).then(functionVersion => {
                         writeStackOutput(config, functionVersion)
                         functionMeta.data = functionVersion /** update versioned metadata */
-                        fs.writeFileSync(path.resolve(config.OutputFolder, `${config.Function.FunctionName}.json`), JSON.stringify(functionMeta, null, 4))
-                        fs.writeFileSync(path.resolve(config.OutputFolder, `${config.Function.FunctionName}.hash`), functionMeta.uploadInfor.FileSha256)
+                        fs.writeFileSync(outputFunctionFilePath, JSON.stringify(functionMeta, null, 4))
+                        fs.writeFileSync(hashFunctionFilePath, functionMeta.uploadInfor.FileSha256)
                         simplify.consoleWithMessage(`${opName}-PublishFunction`, `Done: ${functionVersion.FunctionArn}`)
                     }).catch(err => simplify.finishWithErrors(`${opName}-PublishFunction-ERROR`, err))
                 } else {
                     writeStackOutput(config, data)
-                    fs.writeFileSync(path.resolve(config.OutputFolder, `${config.Function.FunctionName}.json`), JSON.stringify(functionMeta, null, 4))
-                    fs.writeFileSync(path.resolve(config.OutputFolder, `${config.Function.FunctionName}.hash`), functionMeta.uploadInfor.FileSha256)
+                    fs.writeFileSync(outputFunctionFilePath, JSON.stringify(functionMeta, null, 4))
+                    fs.writeFileSync(hashFunctionFilePath, functionMeta.uploadInfor.FileSha256)
                     simplify.consoleWithMessage(`${opName}-DeployFunction`, `Done: ${data.FunctionArn}`)
                 }
             } else {
@@ -379,7 +442,9 @@ const destroyFunction = function (options) {
     }
     const envOptions = { FUNCTION_NAME: functionName, DEPLOYMENT_ENV: envName, DEPLOYMENT_REGION: regionName }
     var config = simplify.getInputConfig(path.resolve(functionName ? functionName : '', configFile || 'config.json'), envOptions)
-    const stackConfigFile = path.resolve(config.OutputFolder, 'StackConfig.json')
+    const stackConfigFile = path.resolve(config.OutputFolder, envName || process.env.DEPLOYMENT_ENV, 'StackConfig.json')
+    const outputFunctionFilePath = path.resolve(config.OutputFolder, `${envName || process.env.DEPLOYMENT_ENV}`, `${functionName || process.env.FUNCTION_NAME}.json`)
+    const hashFunctionFilePath = path.resolve(config.OutputFolder, `${envName || process.env.DEPLOYMENT_ENV}`, `${functionName || process.env.FUNCTION_NAME}.hash`)
     const stackList = fs.existsSync(stackConfigFile) ? JSON.parse(fs.readFileSync(stackConfigFile)) : {}
     return provider.setConfig(config).then(_ => {
         const roleName = `${config.Function.FunctionName}Role`
@@ -398,8 +463,8 @@ const destroyFunction = function (options) {
             let configInput = JSON.parse(fs.readFileSync(path.resolve(functionName ? functionName : '', configFile || 'config.json')))
             configInput.Function.Layers = []
             fs.writeFileSync(path.resolve(functionName ? functionName : '', configFile || 'config.json'), JSON.stringify(configInput, null, 4))
-            fs.unlinkSync(path.resolve(config.OutputFolder, `${data.FunctionName}.hash`))
-            fs.unlinkSync(path.resolve(config.OutputFolder, `${data.FunctionName}.json`))
+            fs.unlinkSync(hashFunctionFilePath)
+            fs.unlinkSync(outputFunctionFilePath)
             simplify.consoleWithMessage(`${opName}-DestroyFunction`, `Done. ${data.FunctionName}`)
         })
     }).then(data => {
@@ -424,10 +489,11 @@ const createStackOnInit = function (stackNameOrURL, locationFolder, envArgs) {
                                 fs.mkdirSync(pathDirName, { recursive: true })
                             }
                             let dataReadBuffer = fs.readFileSync(filePath).toString('utf8')
-                            if (outputFileName.endsWith('dotenv')) {
+                            if (outputFileName.endsWith('dotenv') || outputFileName.endsWith('package.json')) {
                                 const parserArgs = typeof stackNameOrURL === 'object' ? stackNameOrURL : envArgs || {}
                                 Object.keys(parserArgs).map(k => {
-                                    dataReadBuffer = dataReadBuffer.replace(`##${k}##`, parserArgs[k])
+                                    const regExVar = new RegExp(`##${k}##`, 'g')
+                                    dataReadBuffer = dataReadBuffer.replace(regExVar, parserArgs[k])
                                 })
                             }
                             fs.writeFileSync(path.resolve(locationFolder, outputFileName.replace('dotenv', '.env')), dataReadBuffer)
@@ -452,12 +518,12 @@ const createStackOnInit = function (stackNameOrURL, locationFolder, envArgs) {
                 fs.writeFileSync(path.resolve(outputFileName), templateYAML)
             }).catch(error => simplify.finishWithErrors(`${opName}-DownloadTemplate-ERROR`, getErrorMessage(error)))
         } else {
-            writeTemplateOutput("template/functions", argv.name || stackNameOrURL)
-            writeTemplateOutput("template/stacks", argv.name || stackNameOrURL)
+            writeTemplateOutput("basic/functions", argv.name || stackNameOrURL)
+            writeTemplateOutput("basic/stacks", argv.name || stackNameOrURL)
             simplify.finishWithMessage(`Initialized`, `${path.resolve('.')}`)
         }
     } else {
-        writeTemplateOutput("template/projects", "")
+        writeTemplateOutput("basic/projects", "")
     }
 }
 
@@ -469,7 +535,7 @@ const printListingDialog = function (options, prompt) {
     }
     const envOptions = { DEPLOYMENT_ENV: envName, DEPLOYMENT_REGION: regionName }
     var config = simplify.getInputConfig(path.resolve(configFile || 'config.json'), envOptions)
-    const stackConfigFile = path.resolve(config.OutputFolder, 'StackConfig.json')
+    const stackConfigFile = path.resolve(config.OutputFolder, envName || process.env.DEPLOYMENT_ENV, 'StackConfig.json')
     const stackList = fs.existsSync(stackConfigFile) ? JSON.parse(fs.readFileSync(stackConfigFile)) : {}
     let tableData = []
     if (Object.keys(stackList).length > 0) {
@@ -516,7 +582,7 @@ const showAvailableStacks = (options, promptDescription) => {
     }
     const envOptions = { DEPLOYMENT_ENV: envName, DEPLOYMENT_REGION: regionName }
     var config = simplify.getInputConfig(path.resolve(configFile || 'config.json'), envOptions)
-    const stackConfigFile = path.resolve(config.OutputFolder, 'StackConfig.json')
+    const stackConfigFile = path.resolve(config.OutputFolder, envName || process.env.DEPLOYMENT_ENV, 'StackConfig.json')
     const stackList = fs.existsSync(stackConfigFile) ? JSON.parse(fs.readFileSync(stackConfigFile)) : {}
     let stackStatus = "AVAILABLE"
     let stackUpdate = "         "
@@ -557,17 +623,18 @@ const showAvailableStacks = (options, promptDescription) => {
 
 showBoxBanner()
 
-var argv = require('yargs').usage('simplify-cli regiter | login | logout | init | deploy | destroy | list [options]')
+var argv = require('yargs').usage('simplify-cli regiter | login | logout | upgrade | init | deploy | destroy | list [options]')
     .string('help').describe('help', 'Display Help for a specific command')
     .string('name').describe('name', 'Specify a name for the created project')
     .string('template').describe('template', 'Init nodejs or python template')
-    .string('data').describe('data', 'Additional parameters in JSON file').default('data', 'data.json')
+    .string('data').describe('data', 'Saved parameters in JSON file').default('data', 'parameters.json')
     .string('config').alias('c', 'config').describe('config', 'function configuration').default('config', 'config.json')
     .string('policy').alias('p', 'policy').describe('policy', 'function policy to attach').default('policy', 'policy.json')
     .string('role').alias('r', 'role').describe('role', 'function policy to attach').default('role', 'role.json')
     .string('source').alias('s', 'source').describe('source', 'function source to deploy').default('source', 'src')
     .string('env').alias('e', 'env').describe('env', 'environment name')
     .string('region').describe('region', 'region name to deploy')
+    .string('exclude').describe('exclude', 'files or folders to exclude for a zip')
     .string('env-file').describe('env-file', 'environment variable file').default('env-file', '.env')
     .boolean('update').describe('update', 'force update function code').default('update', false)
     .boolean('publish').describe('publish', 'force publish with a version').default('publish', false)
@@ -584,22 +651,11 @@ var cmdArg = argv['stack'] || argv['function'] || optCMD
 var cmdType = cmdArg ? fs.existsSync(path.resolve(argv.location, cmdArg, "template.yaml")) ? "CF-Stack" : "Function" : undefined
 
 const showSubscriptionPlan = function(userSession) {
-    const currentPlan = (userSession.getIdToken().payload[`subscription`] || 'Basic')
-    const currentVersion = PLAN_VERSIONS[currentPlan.toUpperCase()] || 'Community'
+    currentSubscription = (userSession.getIdToken().payload[`subscription`] || 'Basic')
+    const currentVersion = PLAN_DEFINITIONS[currentSubscription.toUpperCase()].Version || 'Community'
     console.log(`\n`, ` * ${CPROMPT}Welcome back${CRESET} : ${userSession.getIdToken().payload[`name`]}`)
-    console.log(`  * ${CPROMPT}Subscription${CRESET} : ${CDONE}${currentPlan}${CRESET} Plan - ${currentVersion} Version`)
-    if (currentPlan.toUpperCase() == 'BASIC') {
-        console.log(`  * ${CGREEN}Change to standard plan with 10$ monthly for advanced resource${CRESET} : simplify-cli upgrade --standard`)
-        console.log(`  * ${CRESET}Or upgrade to premium plan with 99$ monthly for CodeMe support${CRESET} : simplify-cli upgrade --premium`)
-    }
-    if (currentPlan.toUpperCase() == 'STANDARD') {
-        console.log(`  * ${CRESET}Change to basic plan (FREE) with 0$ monthly for basic resource${CRESET} : simplify-cli upgrade --basic`)
-        console.log(`  * ${CGREEN}Or upgrade to premium plan with 99$ monthly for CodeMe support${CRESET} : simplify-cli upgrade --premium`)
-    }
-    if (currentPlan.toUpperCase() == 'PREMIUM') {
-        console.log(`  * ${CRESET}Change to basic plan (FREE) with 0$ monthly for basic resource${CRESET} : simplify-cli upgrade --basic`)
-        console.log(`  * ${CRESET}Change to standard plan with 10$ monthly for advanced resource${CRESET} : simplify-cli upgrade --standard`)
-    }
+    console.log(`  * ${CPROMPT}Subscription${CRESET} : ${CDONE}${currentSubscription}${CRESET} Plan (${currentVersion} Version)`)
+    console.log(`  * ${CPROMPT}Change to other subscription plan${CRESET} : simplify-cli upgrade`)
 }
 
 const processCLI = function (cmdRun, session) {
@@ -631,23 +687,21 @@ const processCLI = function (cmdRun, session) {
         }
 
     } else if (cmdRun === "DESTROY") {
-        if (argv['stack'] !== undefined) {
-            destroyStack({
+        if (cmdArg !== undefined) {
+            (cmdType === "Function" ? destroyFunction({
+                regionName: argv.region,
+                configFile: argv.config,
+                envName: argv.env,
+                envFile: argv['env-file'],
+                functionName: cmdArg,
+                withFunctionLayer: argv.layer
+            }) : destroyStack)({
                 regionName: argv.region,
                 configFile: argv.config,
                 envName: argv.env,
                 envFile: argv['env-file'],
                 configStackFolder: argv.location,
-                configStackName: argv['stack']
-            })
-        } else if (argv['function'] !== undefined) {
-            destroyFunction({
-                regionName: argv.region,
-                configFile: argv.config,
-                envName: argv.env,
-                envFile: argv['env-file'],
-                functionName: argv.function,
-                withFunctionLayer: argv.layer
+                configStackName: cmdArg
             })
         } else {
             printListingDialog({
@@ -665,6 +719,16 @@ const processCLI = function (cmdRun, session) {
         authenticate(username, password).then(function (userSession) {
             showSubscriptionPlan(userSession)
         }).catch(error => console.error(error))
+    } else if (cmdRun === "UPGRADE") {
+        const subscriptionPlan = readlineSync.keyInSelect([
+            `BASIC - ${PLAN_DEFINITIONS["BASIC"].Description}`,
+            `PREMIUM - ${PLAN_DEFINITIONS["PREMIUM"].Description}`],
+            ` - You are about to change your subscription from ${CPROMPT}${currentSubscription.toUpperCase()}${CRESET} plan to: `)
+        if (subscriptionPlan >=0) {
+            const newSubscription = Object.keys(PLAN_DEFINITIONS).find(x => PLAN_DEFINITIONS[x].Index == (subscriptionPlan))
+            console.log(`\n * You have selected to pay ${PLAN_DEFINITIONS[newSubscription].Subscription}$ for ${newSubscription} version!`)
+            console.log(` * Unfortunately, this feature is not available at the moment. \n`)
+        }
     } else if (cmdRun === "REGISTER") {
         const fullname = readlineSync.question(` - ${CPROMPT}What is your name${CRESET} : `, { limitMessage: " * Your name is invalid." })
         const username = readlineSync.questionEMail(` - ${CPROMPT}Registered email${CRESET} : `, { limitMessage: " * Your registered email is invalid." })
@@ -714,7 +778,7 @@ const processCLI = function (cmdRun, session) {
                     DEPLOYMENT_PROFILE: readlineSync.question(` - ${CPROMPT}What is your Account profile?${CRESET} (${process.env.DEPLOYMENT_PROFILE || 'simplify-eu'}) `) || `${process.env.DEPLOYMENT_PROFILE || 'simplify-eu'}`,
                     DEPLOYMENT_REGION: readlineSync.question(` - ${CPROMPT}What is your Default region?${CRESET} (${process.env.DEPLOYMENT_REGION || 'eu-central-1'}) `) || `${process.env.DEPLOYMENT_REGION || 'eu-central-1'}`,
                     DEPLOYMENT_ENV: readlineSync.question(` - ${CPROMPT}What is your Environment name?${CRESET} (${process.env.DEPLOYMENT_ENV || 'demo'}) `) || `${process.env.DEPLOYMENT_ENV || 'demo'}`
-                })
+                }, argv.location, process.env)
                 console.log(`\n *`, `Type '--help' with INIT to find more: simplify-cli init --help \n`)
             }
         } else {
@@ -725,32 +789,32 @@ const processCLI = function (cmdRun, session) {
     }
 }
 
-if (!fs.existsSync(path.resolve(argv.config || 'config.json'))) {
-    console.log(`\n`,`- ${CPROMPT}This is not a valid environment${CRESET}. You must create an environment first.`)
-    console.log(`\n`,`*`, `Create environment: \tsimplify-cli init`, `\n`)
-} else {
-    const configInfo = JSON.parse(fs.readFileSync(path.resolve(argv.config || 'config.json')))
-    if (configInfo.hasOwnProperty('Profile') && configInfo.hasOwnProperty('Region') && configInfo.hasOwnProperty('Bucket')) {
-        if (["LOGIN", "REGISTER"].indexOf(cmdOPS) == -1) {
-            getCurrentSession().then(session => {
-                if (session && session.isValid()) {
-                    showSubscriptionPlan(session)
-                    processCLI(cmdOPS, session)
-                } else {
-                    console.log(`${CPROMPT}Session is invalid${CRESET}. Please re-login.`)
-                    console.log(`\n *`, `Login: \tsimplify-cli login`)
-                }
-            }).catch(error => {
-                console.log(`${CPROMPT}${error}${CRESET}. Please login or register an account.`)
-                console.log(`\n *`, `Login: \tsimplify-cli login`)
-                console.log(` *`, `Register: \tsimplify-cli register`, `\n`)
-            })
+if (["LOGIN", "REGISTER"].indexOf(cmdOPS) == -1) {
+    getCurrentSession().then(session => {
+        if (session && session.isValid()) {
+            showSubscriptionPlan(session)
+            processCLI(cmdOPS, session)
         } else {
-            processCLI(cmdOPS)
+            console.log(`${CPROMPT}Session is invalid${CRESET}. Please re-login.`)
+            console.log(`\n *`, `Login: \tsimplify-cli login`)
         }
-    } else {
-        console.log(`\n`,`- ${CPROMPT}This is not a valid environment${CRESET}. The ${argv.config || 'config.json'} is incorrect.`)
+    }).catch(error => {
+        console.log(`${CPROMPT}${error}${CRESET}. Please login or register an account.`)
+        console.log(`\n *`, `Login: \tsimplify-cli login`)
+        console.log(` *`, `Register: \tsimplify-cli register`, `\n`)
+    })
+} else {
+    if (["INIT"].indexOf(cmdOPS) == -1 && !fs.existsSync(path.resolve(argv.config || 'config.json'))) {
+        console.log(`\n`,`- ${CPROMPT}This is not a valid environment${CRESET}. You must create an environment first.`)
         console.log(`\n`,`*`, `Create environment: \tsimplify-cli init`, `\n`)
+    } else {
+        const configInfo = JSON.parse(fs.readFileSync(path.resolve(argv.config || 'config.json')))
+        if (configInfo.hasOwnProperty('Profile') && configInfo.hasOwnProperty('Region') && configInfo.hasOwnProperty('Bucket')) {
+            processCLI(cmdOPS)   
+        } else {
+            console.log(`\n`,`- ${CPROMPT}This is not a valid environment${CRESET}. The ${argv.config || 'config.json'} is incorrect.`)
+            console.log(`\n`,`*`, `Create environment: \tsimplify-cli init`, `\n`)
+        }
     }
 }
 

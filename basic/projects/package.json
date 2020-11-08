@@ -1,13 +1,13 @@
 {
-  "name": "default-env",
+  "name": "##PROJECT_NAME##",
   "version": "1.0.0",
-  "description": "",
+  "description": "##PROJECT_NAME## ##DEPLOYMENT_ENV## workspace project",
   "scripts": {
     "deploy": "simplify-cli deploy",
     "destroy": "simplify-cli destroy",
-    "stack-deploy": "simplify-cli deploy --stack-name",
-    "stack-destroy": "simplify-cli destroy --stack-name"
+    "stack-deploy": "simplify-cli deploy --stack",
+    "stack-destroy": "simplify-cli destroy --stack"
   },
-  "author": "",
+  "author": "##PROJECT_NAME##",
   "license": "ISC"
 }

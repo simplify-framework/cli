@@ -5,7 +5,7 @@
         "Name": "${DEPLOYMENT_BUCKET}-${DEPLOYMENT_REGION}",
         "Key": "builds/${DATE_TODAY}"
     },
-    "OutputFolder": ".simplify/${DEPLOYMENT_ENV}",
+    "OutputFolder": ".simplify",
     "Function": {
         "FunctionName": "${FUNCTION_NAME}-${DEPLOYMENT_ENV}",
         "Handler": "${FUNCTION_HANDLER}",
