@@ -183,7 +183,7 @@ const deployStack = function (options) {
                 fs.writeFileSync(path.resolve(configStackFolder, configStackName, dataFile), JSON.stringify(resultParameters, null, 4))
             }
 
-            function processParameters(resultErrors, resultParameters, stackParamteres) {
+            function processParameters(resultErrors, resultParameters, stackParamteres, docYaml) {
                 if (!resultErrors) {
                     reviewParameters(resultParameters, stackParamteres)
                     saveParameters(resultParameters)
@@ -195,13 +195,17 @@ const deployStack = function (options) {
                     reviewParameters(resultParameters, stackParamteres)
                     const finalResult = mappingParameters(docYaml, resultParameters)
                     if (!finalResult.resultErrors) {
+                        saveParameters(resultParameters)
                         createStack(templateURL, finalResult.resultParameters, stackPluginModule)
                     } else {
                         finalResult.resultErrors.map(error => {
-                            simplify.consoleWithErrors(`${opName}-Verification`, `(${stackFullName}) name=${error.name} type=${error.type} is not set.`)
+                            const adjustParameter = error.name
+                            simplify.consoleWithErrors(`${opName}-Verification`, `(${stackFullName}) name=${adjustParameter} type=${error.type} is not set.`)
+                            finalResult.resultParameters[adjustParameter] = readlineSync.question(`Enter parameter value for ${CPROMPT}${adjustParameter}${CRESET} :`)    
                         })
+                        saveParameters(finalResult.resultParameters)
+                        createStack(templateURL, finalResult.resultParameters, stackPluginModule)
                     }
-                    saveParameters(resultParameters)
                 }
             }
 
@@ -223,12 +227,12 @@ const deployStack = function (options) {
                     stackPluginModule.preCreation({ simplify, provider, config }, configStackName, resultParameters, docYaml, stackOutputData).then(parameterResult => {
                         const { resultParameters, resultErrors } = mappingParameters(docYaml, parameterResult)
                         simplify.consoleWithMessage(`${opName}-PreCreation`, `${stackExtension + '.js'} - (Executed)`)
-                        processParameters(resultErrors, resultParameters, stackParamteres)
+                        processParameters(resultErrors, resultParameters, stackParamteres, docYaml)
                     })
                 } else {
                     simplify.consoleWithMessage(`${opName}-PreCreation`, `${stackExtension + '.js'} - (Skipped)`)
                     const { resultParameters, resultErrors, stackParamteres } = mappingParameters(docYaml, parameters)
-                    processParameters(resultErrors, resultParameters, stackParamteres)
+                    processParameters(resultErrors, resultParameters, stackParamteres, docYaml)
                 }
             } catch (error) {
                 simplify.finishWithErrors(`${opName}-LoadYAMLResource:`, getErrorMessage(error))
