@@ -13,10 +13,9 @@ $ simplify-cli init --help
 ║                 Simplify CLI - Version 0.1.21                 ║
 ╙───────────────────────────────────────────────────────────────╜
 
-Create a deployment template: simplify-cli init [--template=]NodeJS | Python
-
+Create a deployment template: simplify-cli init [--template=]Detector | ShowLog
  1. Detector - A lambda function based on Python 3.7 runtime with default Role and Policy configuration.
- 2. Lambda - A lambda function based on NodeJS 12.x runtime with default Role and Policy configuration.
+ 2. ShowLog - A lambda function based on NodeJS 12.x runtime with default Role and Policy configuration.
 
 Create associated CF stack: simplify-cli init [--template=]CloudFront | CognitoUser...
 
