@@ -10,12 +10,12 @@
 ```bash
 $ simplify-cli init --help
 ╓───────────────────────────────────────────────────────────────╖
-║                 Simplify CLI - Version 0.1.21                 ║
+║                 Simplify CLI - Version 0.1.23                 ║
 ╙───────────────────────────────────────────────────────────────╜
 
 Create a deployment template: simplify-cli init [--template=]Detector | ShowLog
- 1. Detector - A lambda function based on Python 3.7 runtime with default Role and Policy configuration.
- 2. ShowLog - A lambda function based on NodeJS 12.x runtime with default Role and Policy configuration.
+ 1. Detector - A Python Detector function based on Python 3.7 runtime.
+ 2. ShowLog - A CloudWatch Log reader function based on NodeJS 12.x.
 
 Create associated CF stack: simplify-cli init [--template=]CloudFront | CognitoUser...
 
