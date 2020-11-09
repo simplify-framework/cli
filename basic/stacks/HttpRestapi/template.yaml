@@ -3,7 +3,12 @@ Description: API Gateway resource stack creation using Simplify CLI
 Parameters:
   Environment:
     Type: String
-    Default: staging
+    Default: devs
+    AllowedValues:
+      - prod
+      - demo
+      - test
+      - devs
   LambdaFunctionName:
     Type: String
   LambdaFunctionArn:

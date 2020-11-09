@@ -11,6 +11,7 @@ const utilities = require('simplify-sdk/utilities')
 const provider = require('simplify-sdk/provider');
 const readlineSync = require('readline-sync');
 const { options } = require('yargs');
+const { exec } = require('child_process');
 const { authenticate, registerUser, confirmRegistration, getCurrentSession, userSignOut } = require('./cognito')
 const PLAN_DEFINITIONS = {
     "BASIC": {
@@ -29,6 +30,7 @@ const PLAN_DEFINITIONS = {
 var currentSubscription = "Basic"
 var functionMeta = { lashHash256: null }
 const opName = `executeCLI`
+const CERROR = '\x1b[31m'
 const CGREEN = '\x1b[32m'
 const CPROMPT = '\x1b[33m'
 const CNOTIF = '\x1b[33m'
@@ -145,7 +147,7 @@ const deployStack = function (options) {
                         let foundParam = stackParamteres[Object.keys(stackParamteres).find(x => paramName == x.replace(/\x1b\[[0-9;]*m/g, "").replace(/[\W_]/g, ''))]
                         return foundParam || stackParamteres[Object.keys(stackParamteres).find(x => paramName.indexOf(x.split('.')[1].replace(/\x1b\[[0-9;]*m/g, "")) >= 0)]
                     }
-                    resultParameters[paramName] = parameters[paramName] || getSimilarParameter(stackParamteres, paramName) || docYaml.Parameters[paramName].Default
+                    resultParameters[paramName] = parameters[paramName] || getSimilarParameter(stackParamteres, paramName)
                     if (!resultParameters[paramName]) {
                         if (!resultErrors) resultErrors = []
                         resultErrors.push({
@@ -157,23 +159,27 @@ const deployStack = function (options) {
                 return { resultParameters, resultErrors, stackOutputData, stackParamteres }
             }
 
-            function selectParameter(param, type, resultParameters, stackParamteres) {
+            function selectParameter(param, docYaml, resultParameters, stackParamteres) {
+                const descParam = docYaml.Parameters[param].Description
+                const allowedValues = docYaml.Parameters[param].AllowedValues
                 const options = Object.keys(stackParamteres).map(x => `${x} = ${stackParamteres[x]}`)
-                const index = readlineSync.keyInSelect(options, `Select a value for ${CPROMPT}${param}${CRESET} parameter ?`, { cancel: `${CBRIGHT}Move to next step${CRESET} - (Continue)` })
+                const index = readlineSync.keyInSelect(allowedValues || options, `Select a value for ${CPROMPT}${param}${CRESET} parameter (${descParam || ''}) ?`, { 
+                    cancel: allowedValues ? `${CBRIGHT}None${CRESET} - (No change)` : `${CBRIGHT}Manual enter a value${CRESET} - (Continue)`
+                })
                 if (index >= 0) {
-                    const selectedParam = param
-                    const selectedValue = stackParamteres[Object.keys(stackParamteres)[index]]
-                    resultParameters[selectedParam] = selectedValue
+                    resultParameters[param] = stackParamteres[Object.keys(stackParamteres)[index]]
+                } else if (!allowedValues) {
+                    resultParameters[param] = readlineSync.question(`\n * Enter parameter value for ${CPROMPT}${param}${CRESET} (${docYaml.Parameters[param].Default || ''}) :`) || docYaml.Parameters[param].Default
                 }
             }
 
-            function reviewParameters(resultParameters, stackParamteres) {
+            function reviewParameters(resultParameters, stackParamteres, docYaml) {
                 let redoParamIndex = -1
                 do {
                     const reviewOptions = Object.keys(resultParameters).map(x => `${x} = ${resultParameters[x] || '(not set)'}`)
-                    redoParamIndex = readlineSync.keyInSelect(reviewOptions, `Do you want to change any of those parameters?`, { cancel: `${CBRIGHT}Start to deploy${CRESET} - (No change)` })
+                    redoParamIndex = readlineSync.keyInSelect(reviewOptions, `Do you want to change any of those parameters?`, { cancel: `${CBRIGHT}Continue to deploy${CRESET} - (No change)` })
                     if (redoParamIndex !== -1) {
-                        selectParameter(Object.keys(resultParameters)[redoParamIndex], "String", resultParameters, stackParamteres)
+                        selectParameter(Object.keys(resultParameters)[redoParamIndex], docYaml, resultParameters, stackParamteres)
                     }
                 } while (redoParamIndex !== -1)
             }
@@ -184,14 +190,14 @@ const deployStack = function (options) {
 
             function processParameters(resultErrors, resultParameters, stackParamteres, docYaml) {
                 if (!resultErrors) {
-                    reviewParameters(resultParameters, stackParamteres)
+                    reviewParameters(resultParameters, stackParamteres, docYaml)
                     saveParameters(resultParameters)
                     createStack(templateURL, resultParameters, stackPluginModule)
                 } else {
                     resultErrors.map(error => {
-                        selectParameter(error.name, error.type, resultParameters, stackParamteres)
+                        selectParameter(error.name, docYaml, resultParameters, stackParamteres)
                     })
-                    reviewParameters(resultParameters, stackParamteres)
+                    reviewParameters(resultParameters, stackParamteres, docYaml)
                     const finalResult = mappingParameters(docYaml, resultParameters)
                     if (!finalResult.resultErrors) {
                         saveParameters(resultParameters)
@@ -519,11 +525,12 @@ const createStackOnInit = function (stackNameOrURL, locationFolder, envArgs) {
                     fs.mkdirSync(pathDirName, { recursive: true })
                 }
                 fs.writeFileSync(path.resolve(outputFileName), templateYAML)
+                console.log(`\n * The ${projectLocation} stack has created successfully. Try simplify-cli deploy ${projectLocation}\n`)
             }).catch(error => simplify.finishWithErrors(`${opName}-DownloadTemplate-ERROR`, getErrorMessage(error)))
         } else {
             writeTemplateOutput("basic/functions", argv.name || stackNameOrURL)
             writeTemplateOutput("basic/stacks", argv.name || stackNameOrURL)
-            simplify.finishWithMessage(`Initialized`, `${path.resolve('.')}`)
+            console.log(`\n - The ${CGREEN}${argv.name || stackNameOrURL}${CRESET} stack has created successfully. Try simplify-cli deploy ${argv.name || stackNameOrURL}\n`)
         }
     } else {
         writeTemplateOutput("basic/projects", "")
@@ -627,7 +634,7 @@ const showAvailableStacks = (options, promptDescription) => {
 
 showBoxBanner()
 
-var argv = require('yargs').usage('simplify-cli regiter | login | logout | upgrade | init | deploy | destroy | list [options]')
+var argv = require('yargs').usage('simplify-cli init | regiter | login | logout | upgrade | create | deploy | destroy | list [options]')
     .string('help').describe('help', 'Display Help for a specific command')
     .string('name').describe('name', 'Specify a name for the created project')
     .string('template').describe('template', 'Init nodejs or python template')
@@ -659,7 +666,7 @@ const showSubscriptionPlan = function (userSession) {
     const currentVersion = PLAN_DEFINITIONS[currentSubscription.toUpperCase()].Version || 'Community'
     console.log(`\n`, ` * ${CPROMPT}Welcome back${CRESET} : ${userSession.getIdToken().payload[`name`]}`)
     console.log(`  * ${CPROMPT}Subscription${CRESET} : ${CDONE}${currentSubscription}${CRESET} Plan (${currentVersion} Version)`)
-    console.log(`  * ${CPROMPT}Change to other subscription plan${CRESET} : simplify-cli upgrade`)
+    console.log(`  * ${CPROMPT}Upgrade plan${CRESET} : simplify-cli upgrade`)
 }
 
 const processCLI = function (cmdRun, session) {
@@ -717,6 +724,7 @@ const processCLI = function (cmdRun, session) {
         }
     } else if (cmdRun === "LOGOUT") {
         userSignOut(session.getIdToken().payload['cognito:username'])
+        console.log(`\n * Signed out, Your session has been wiped successfully. \n`)
     } else if (cmdRun === "LOGIN") {
         const username = readlineSync.questionEMail(` - ${CPROMPT}Your identity${CRESET} : `, { limitMessage: " * Your login email is invalid." })
         const password = readlineSync.question(` - ${CPROMPT}Your password${CRESET} : `, { hideEchoBack: true })
@@ -725,9 +733,10 @@ const processCLI = function (cmdRun, session) {
         }).catch(error => console.error(error))
     } else if (cmdRun === "UPGRADE") {
         const subscriptionPlan = readlineSync.keyInSelect([
-            `BASIC - ${PLAN_DEFINITIONS["BASIC"].Description}`,
-            `PREMIUM - ${PLAN_DEFINITIONS["PREMIUM"].Description}`],
-            ` - You are about to change your subscription from ${CPROMPT}${currentSubscription.toUpperCase()}${CRESET} plan to: `)
+            `BASIC - ${PLAN_DEFINITIONS["BASIC"].Description}.`,
+            `PREMIUM - ${PLAN_DEFINITIONS["PREMIUM"].Description}.`],
+            ` - You are about to change your subscription from ${CPROMPT}${currentSubscription.toUpperCase()}${CRESET} plan to: `,
+            { cancel: `SKIP - Retain my current subscription as the ${currentSubscription.toUpperCase()} one.` })
         if (subscriptionPlan >= 0) {
             const newSubscription = Object.keys(PLAN_DEFINITIONS).find(x => PLAN_DEFINITIONS[x].Index == (subscriptionPlan))
             console.log(`\n * You have selected to pay ${PLAN_DEFINITIONS[newSubscription].Subscription}$ for ${newSubscription} version!`)
@@ -768,50 +777,161 @@ const processCLI = function (cmdRun, session) {
             envFile: argv['env-file']
         }, `Deployed ${CPROMPT}stacks${CRESET} and ${CPROMPT}functions${CRESET} managed by Simplify CLI:`)
     } else if (cmdRun === "INIT") {
+        function verifyAccountAccess(options, callback, errorHandler) {
+            const S3_OPTIONS = (options.DEPLOYMENT_REGION !== 'us-west-1' ? `--create-bucket-configuration LocationConstraint=${options.DEPLOYMENT_REGION} ` : '') + `--profile ${options.DEPLOYMENT_PROFILE} --region ${options.DEPLOYMENT_REGION}`
+            exec(`aws s3api create-bucket --bucket ${options.DEPLOYMENT_BUCKET}-${options.DEPLOYMENT_REGION} ${S3_OPTIONS}`, (err, stdout, stderr) => {
+                if (!err) {
+                    if (stderr) {
+                        errorHandler && errorHandler({ message: `The ${options.DEPLOYMENT_PROFILE} doesn't have s3:PutObject permission to ${options.DEPLOYMENT_BUCKET}-${options.DEPLOYMENT_REGION} bucket` })
+                    } else {
+                        callback && callback(options)
+                    }
+                } else {
+                    errorHandler && errorHandler(err)
+                }
+            })
+        }
+        function setupAccountId(options, callback) {
+            const REGIONS = ["us-east-2", "us-east-1", "us-west-1", "eu-west-1", "eu-central-1", "eu-west-3", "ap-northeast-1", "ap-southeast-2", "ap-southeast-1"]
+            const regionIndex = readlineSync.keyInSelect([
+                "us-east-2 (N. Virginia)", "us-east-1 (Ohio)", "us-west-1 (N. California)",
+                "eu-west-1 (Ireland)", "eu-central-1 (Frankfurt)", "eu-west-3 (Paris)",
+                "ap-northeast-1 (Tokyo)", "ap-southeast-2 (Sydney)", "ap-southeast-1 (Singapore)"
+            ], ` - ${CPROMPT}Choose your AWS Region?${CRESET} `, { cancel: `${CBRIGHT}others${CRESET} (Enter manually)`})
+            if (regionIndex == -1) {
+                options.DEPLOYMENT_REGION = readlineSync.question(` - ${CPROMPT}What is your AWS Region?${CRESET} (${process.env.DEPLOYMENT_REGION || 'us-east-1'}) `) || `${process.env.DEPLOYMENT_REGION || 'us-east-1'}`
+            } else {
+                options.DEPLOYMENT_REGION = REGIONS[regionIndex]
+                console.log(`\n *`, `Your have just selected the ${CBRIGHT}${options.DEPLOYMENT_REGION}${CRESET} region \n`)
+            }
+            exec(`aws sts get-caller-identity --profile ${options.DEPLOYMENT_PROFILE} --query "Account" --output=text`, (err, stdout, stderr) => {
+                if (!err) {
+                    options.DEPLOYMENT_ACCOUNT = readlineSync.question(` - ${CPROMPT}Confirm your AWS AccountId?${CRESET} (${stdout.trim()}) `) || `${stdout.trim()}`
+                } else {
+                    options.DEPLOYMENT_ACCOUNT = readlineSync.question(` - ${CPROMPT}What is your AWS AccountId?${CRESET} (${process.env.DEPLOYMENT_ACCOUNT || 'Enter a valid AccountId'}) `) || `${process.env.DEPLOYMENT_ACCOUNT || ''}`
+                }
+                verifyAccountAccess(options, callback, function(error) {
+                    simplify.consoleWithErrors(`${opName}-INIT`, `${error}`)
+                })
+            })
+        }
+        function setupProfile(options, callback) {
+            console.log(`\n See https://docs.aws.amazon.com/general/latest/gr/aws-sec-cred-types.html#access-keys-and-secret-access-keys \n`)
+            options.DEPLOYMENT_PROFILE = readlineSync.question(` - ${CPROMPT}Choose a name for your AWS Profile${CRESET} (${process.env.PROJECT_NAME || 'default'}) `) || `${process.env.PROJECT_NAME || 'default'}`
+            const awsAccessKeyID = readlineSync.question(` - ${CPROMPT}Enter your AWS Access KeyID${CRESET} :`)
+            const awsSecretKey = readlineSync.question(` - ${CPROMPT}Enter your AWS Secreet Key${CRESET} :`, { hideEchoBack: true })
+            const awsRoleARN = readlineSync.question(` - ${CPROMPT}Enter your Assume Role ARN${CRESET} (None):`)
+            const awsRoleExtId = awsRoleARN ? readlineSync.question(` - ${CPROMPT}Enter your Assume Role External ID${CRESET} (None):`) : undefined
+            exec(`aws configure set aws_access_key_id ${awsAccessKeyID} --profile ${options.DEPLOYMENT_PROFILE}`, (err, stdout, stderr) => {
+                if (!err) {
+                    exec(`aws configure set aws_secret_access_key ${awsSecretKey} --profile ${options.DEPLOYMENT_PROFILE}`, (err, stdout, stderr) => {
+                        if (!err) {
+                            console.log(`\n *`, `Your have just setup the ${CBRIGHT}${options.DEPLOYMENT_PROFILE}${CRESET} profile \n`)
+                            if (awsRoleARN) {
+                                exec(`aws configure set role_arn ${awsRoleARN} --profile ${options.DEPLOYMENT_PROFILE}`, (err, stdout, stderr) => {
+                                    if (!err) {
+                                        if (awsRoleExtId) {
+                                            exec(`aws configure set external_id ${awsRoleExtId} --profile ${options.DEPLOYMENT_PROFILE}`, (err, stdout, stderr) => {
+                                                if (!err) {
+                                                    callback && callback(options)
+                                                } else {
+                                                    console.error(`${CERROR}${err}${CRESET}`)
+                                                }
+                                            })
+                                        } else {
+                                            callback && callback(options)
+                                        }
+                                    } else {
+                                        console.error(`${CERROR}${err}${CRESET}`)
+                                    }
+                                })
+                            } else {
+                                callback && callback(options)
+                            }
+                        } else {
+                            console.error(`${CERROR}${err}${CRESET}`)
+                        }
+                    })
+                } else {
+                    console.error(`${CERROR}${err}${CRESET}`)
+                }
+            })
+        }
+        exec(`aws --version`, (err, stdout, stderr) => {
+            if (err) {
+                console.log(`\n *`, `Missing awscli installed in your computer. Refer: https://docs.aws.amazon.com/cli/latest/userguide/install-cliv2.html \n`)
+            } else {
+                let initOptions = {
+                    PROJECT_NAME: readlineSync.question(` - ${CPROMPT}Choose a Project name?${CRESET} (${process.env.PROJECT_NAME || 'starwars'}) `) || `${process.env.PROJECT_NAME || 'starwars'}`,
+                    DEPLOYMENT_BUCKET: readlineSync.question(` - ${CPROMPT}Choose an S3 Bucket name?${CRESET} (${process.env.DEPLOYMENT_BUCKET || 'starwars-0920'}) `) || `${process.env.DEPLOYMENT_BUCKET || 'starwars-0920'}`,
+                    DEPLOYMENT_ENV: readlineSync.question(` - ${CPROMPT}Choose an Environment?${CRESET} (${process.env.DEPLOYMENT_ENV || 'demo'}) `) || `${process.env.DEPLOYMENT_ENV || 'demo'}`
+                }
+                exec('aws configure list-profiles', (err, stdout, stderr) => {
+                    if (err) {
+                        simplify.consoleWithErrors(`${opName}-INIT`, `${err}`)
+                    } else {
+                        const profileItems = stdout.split('\n').filter(x => x)
+                        const selectedIndex = initOptions.DEPLOYMENT_PROFILE = readlineSync.keyInSelect(profileItems,
+                            ` - ${CPROMPT}What is your AWS Profile?${CRESET}`,
+                            { cancel: `I want to setup a new AWS Profile` })
+                        if (selectedIndex == -1) {
+                            setupProfile(initOptions, function(options) {
+                                setupAccountId(options, function(options) {
+                                    createStackOnInit(options, argv.location, process.env)
+                                    console.log(`\n *`, `Type '--help' with CREATE to find more: simplify-cli create --help \n`)
+                                })
+                            })
+                        } else {
+                            initOptions.DEPLOYMENT_PROFILE = profileItems[selectedIndex]
+                            console.log(`\n *`, `Your have just selected the ${CBRIGHT}${initOptions.DEPLOYMENT_PROFILE}${CRESET} profile \n`)
+                            setupAccountId(initOptions, function(options) {
+                                createStackOnInit(options, argv.location, process.env)
+                                console.log(`\n *`, `Type '--help' with CREATE to find more: simplify-cli create --help \n`)
+                            })
+                        }
+                    }
+                });
+            }
+        })
+    } else if (cmdRun === "CREATE") {
         const templateName = argv.template || optCMD
         if (typeof templateName === "undefined") {
             if (typeof argv.help !== "undefined") {
-                showTemplates("basic/functions", `\nCreate a function template: simplify-cli init [--template=]NodeJS | Python\n`)
-                showTemplates("basic/stacks", `\nOr create a deployment stack: simplify-cli init [--template=]CloudFront | CognitoUser...\n`)
-                console.log(`\n *`, `Direct install from URL: simplify-cli init [--template=]https://github.com/awslabs/...template.yml \n`)
+                showTemplates("basic/functions", `\nCreate a function template: simplify-cli create [--template=]ShowLog | Detector\n`)
+                showTemplates("basic/stacks", `\nOr create a deployment stack: simplify-cli create [--template=]CloudFront | CognitoUser...\n`)
+                console.log(`\n *`, `Or fetch from YAML: simplify-cli create [--template=]https://github.com/awslabs/...template.yml \n`)
             } else {
-                createStackOnInit({
-                    PROJECT_NAME: readlineSync.question(` - ${CPROMPT}Choose a Project name?${CRESET} (${process.env.PROJECT_NAME || 'starwars'}) `) || `${process.env.PROJECT_NAME || 'starwars'}`,
-                    DEPLOYMENT_BUCKET: readlineSync.question(` - ${CPROMPT}Choose an S3 Bucket name?${CRESET} (${process.env.DEPLOYMENT_BUCKET || 'starwars-0920'}) `) || `${process.env.DEPLOYMENT_BUCKET || 'starwars-0920'}`,
-                    DEPLOYMENT_ENV: readlineSync.question(` - ${CPROMPT}Choose an Environment?${CRESET} (${process.env.DEPLOYMENT_ENV || 'demo'}) `) || `${process.env.DEPLOYMENT_ENV || 'demo'}`,
-                    DEPLOYMENT_ACCOUNT: readlineSync.question(` - ${CPROMPT}What is your AWS AccountId?${CRESET} (${process.env.DEPLOYMENT_ACCOUNT || '123456789012'}) `) || `${process.env.DEPLOYMENT_ACCOUNT || '1234567890'}`,
-                    DEPLOYMENT_PROFILE: readlineSync.question(` - ${CPROMPT}What is your AWS Profile?${CRESET} (${process.env.DEPLOYMENT_PROFILE || 'default'}) `) || `${process.env.DEPLOYMENT_PROFILE || 'default'}`,
-                    DEPLOYMENT_REGION: readlineSync.question(` - ${CPROMPT}Where is your AWS Region?${CRESET} (${process.env.DEPLOYMENT_REGION || 'eu-central-1'}) `) || `${process.env.DEPLOYMENT_REGION || 'eu-central-1'}`
-                }, argv.location, process.env)
-                console.log(`\n *`, `Type '--help' with INIT to find more: simplify-cli init --help \n`)
+                console.log(`\n *`, `Missing a Template: simplify-cli create [--template=]Template \n`)
             }
         } else {
             createStackOnInit(templateName, argv.location, process.env)
         }
     } else {
-        console.log(`\n * Command ${cmdRun} is not supported. Try with these commands: init | list | login | deploy | destroy \n`)
+        console.log(`\n * Command ${cmdRun} is not supported. Try with these commands: create | list | login | deploy | destroy \n`)
     }
 }
 
 if (["INIT", "LOGIN", "REGISTER"].indexOf(cmdOPS) == -1) {
-    getCurrentSession().then(session => {
-        if (session && session.isValid()) {
-            showSubscriptionPlan(session)
-            processCLI(cmdOPS, session)
-        } else {
-            console.log(`${CPROMPT}Session is invalid${CRESET}. Please re-login.`)
-            console.log(`\n *`, `Login: \tsimplify-cli login`)
-        }
-    }).catch(error => {
-        console.log(`${CPROMPT}${error}${CRESET}. Please login or register an account.`)
-        console.log(`\n *`, `Login: \tsimplify-cli login`)
-        console.log(` *`, `Register: \tsimplify-cli register`, `\n`)
-    })
-} else {
-    if (["INIT", "LOGIN", "REGISTER"].indexOf(cmdOPS) == -1 && !fs.existsSync(path.resolve(argv.config || 'config.json'))) {
+    if (!fs.existsSync(path.resolve(argv.config || 'config.json'))) {
         console.log(`\n`, `- ${CPROMPT}This is not a valid environment${CRESET}. You must create an environment first.`)
         console.log(`\n`, `*`, `Create environment: \tsimplify-cli init`, `\n`)
-    } else if (["INIT"].indexOf(cmdOPS) == -1) {
+    } else {
+        getCurrentSession().then(session => {
+            if (session && session.isValid()) {
+                showSubscriptionPlan(session)
+                processCLI(cmdOPS, session)
+            } else {
+                console.log(`${CPROMPT}Session is invalid${CRESET}. Please re-login.`)
+                console.log(`\n *`, `Login: \tsimplify-cli login`)
+            }
+        }).catch(error => {
+            console.log(`${CPROMPT}${error}${CRESET}. Please login or register an account.`)
+            console.log(`\n *`, `Login: \tsimplify-cli login`)
+            console.log(` *`, `Register: \tsimplify-cli register`, `\n`)
+        })
+    }
+} else {
+    if (["INIT"].indexOf(cmdOPS) == -1) {
         const configInfo = JSON.parse(fs.readFileSync(path.resolve(argv.config || 'config.json')))
         if (configInfo.hasOwnProperty('Profile') && configInfo.hasOwnProperty('Region') && configInfo.hasOwnProperty('Bucket')) {
             processCLI(cmdOPS)

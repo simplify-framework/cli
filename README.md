@@ -8,38 +8,37 @@
 `npm install -g simplify-cli`
 
 ```bash
-$ simplify-cli init --help
+$ simplify-cli init
+
+ - Choose a Project name? (starwars) 
+ - Choose an S3 Bucket name? (starwars-0920) 
+ - Choose an Environment? (demo) 
+
+$ simplify-cli regiter
+$ simplify-cli login
+$ simplify-cli create --help
+
 ╓───────────────────────────────────────────────────────────────╖
-║                 Simplify CLI - Version 0.1.23                 ║
+║                 Simplify CLI - Version 0.1.24                 ║
 ╙───────────────────────────────────────────────────────────────╜
 
-Create a deployment template: simplify-cli init [--template=]Detector | ShowLog
+Create a deployment template: simplify-cli create [--template=]Detector | ShowLog
  1. Detector - A Python Detector function based on Python 3.7 runtime.
  2. ShowLog - A CloudWatch Log reader function based on NodeJS 12.x.
 
-Create associated CF stack: simplify-cli init [--template=]CloudFront | CognitoUser...
+Create associated CF stack: simplify-cli create [--template=]CloudFront | CognitoUser...
 
  1. CloudFront - A template to create a CDN using CloudFront for S3 Website and HTTP APIs origin.
  2. CognitoUser - A template to create a Cognito UserPool, Cognito Indentity and Pinpoint analytics.
  3. EventScheduler - A CloudWatch scheduler event for triggering a lambda function with schedule expresion.
  4. HttpRestapi - A template to create a REST API Gateway that work with Lambda functions.
  5. LambdaEdge - A template to create a CDN using CloudFront that works with LambdaEdge function.
- 6. Randomness - A Lambda randomness source to use in common case for other Lambdas
+ 6. Randomness - A Lambda randomness source to use in common case for other Lambdas.
  7. WebsiteS3 - An HTML website hosting by Amazon S3 Bucket that support publishing extension script.
 
- * Or install from URL: simplify-cli init [--template=]https://github.com/awslabs/...template.yml
+ * Or fetch from YAML: simplify-cli create [--template=]https://github.com/awslabs/...template.yml
  ```
   
-### Init your environment
-
-    simplify-cli init Lambda --name LambdaTest
-
-    Will generate .env, config.json, role.json and policy.json:
-    
-    - Prepare your environment (.env file) with a `Function Name`
-    - Change function configuration if needed, eg: `MemorySize: 128`
-    - Change resource access policy to your database or others.
-
 ### Deploy your function
 
     1. simplify-cli deploy --function LambdaTest --source src             # resilience deploying your function code 
