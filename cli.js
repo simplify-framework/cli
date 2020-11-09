@@ -18,7 +18,7 @@ const PLAN_DEFINITIONS = {
         "Version": "Community",
         "Description": "FREE membership with community access to development resources",
         "Subscription": 0
-    }, 
+    },
     "PREMIUM": {
         "Index": 1,
         "Version": "Enterprise",
@@ -36,7 +36,7 @@ const CRESET = '\x1b[0m'
 const CDONE = '\x1b[37m'
 const CBRIGHT = '\x1b[37m'
 const CUNDERLINE = '\x1b[4m'
-const COLORS = function(name) {
+const COLORS = function (name) {
     const colorCodes = ["\x1b[31m", "\x1b[32m", "\x1b[33m", "\x1b[34m", "\x1b[35m", "\x1b[36m", "\x1b[31m", "\x1b[32m", "\x1b[33m", "\x1b[34m", "\x1b[35m", "\x1b[36m", "\x1b[31m", "\x1b[32m", "\x1b[33m", "\x1b[34m", "\x1b[35m", "\x1b[36m", "\x1b[31m", "\x1b[32m", "\x1b[33m", "\x1b[34m", "\x1b[35m", "\x1b[36m", "\x1b[31m", "\x1b[32m", "\x1b[33m", "\x1b[34m", "\x1b[35m", "\x1b[36m"]
     return colorCodes[(name.toUpperCase().charCodeAt(0) - 65) % colorCodes.length]
 }
@@ -142,8 +142,8 @@ const deployStack = function (options) {
                 }
                 Object.keys(docYaml.Parameters).map(paramName => {
                     function getSimilarParameter(stackParamteres, paramName) {
-                        let foundParam = stackParamteres[Object.keys(stackParamteres).find(x => paramName == x.replace(/\x1b\[[0-9;]*m/g, "" ).replace(/[\W_]/g,''))]
-                        return foundParam || stackParamteres[Object.keys(stackParamteres).find(x => paramName.indexOf(x.split('.')[1].replace( /\x1b\[[0-9;]*m/g, "" )) >= 0)]
+                        let foundParam = stackParamteres[Object.keys(stackParamteres).find(x => paramName == x.replace(/\x1b\[[0-9;]*m/g, "").replace(/[\W_]/g, ''))]
+                        return foundParam || stackParamteres[Object.keys(stackParamteres).find(x => paramName.indexOf(x.split('.')[1].replace(/\x1b\[[0-9;]*m/g, "")) >= 0)]
                     }
                     resultParameters[paramName] = parameters[paramName] || getSimilarParameter(stackParamteres, paramName) || docYaml.Parameters[paramName].Default
                     if (!resultParameters[paramName]) {
@@ -160,7 +160,7 @@ const deployStack = function (options) {
             function selectParameter(param, type, resultParameters, stackParamteres) {
                 const options = Object.keys(stackParamteres).map(x => `${x} = ${stackParamteres[x]}`)
                 const index = readlineSync.keyInSelect(options, `Select a value for ${CPROMPT}${param}${CRESET} parameter ?`, { cancel: `${CBRIGHT}Move to next step${CRESET} - (Continue)` })
-                if (index >=0) {
+                if (index >= 0) {
                     const selectedParam = param
                     const selectedValue = stackParamteres[Object.keys(stackParamteres)[index]]
                     resultParameters[selectedParam] = selectedValue
@@ -175,7 +175,7 @@ const deployStack = function (options) {
                     if (redoParamIndex !== -1) {
                         selectParameter(Object.keys(resultParameters)[redoParamIndex], "String", resultParameters, stackParamteres)
                     }
-                } while(redoParamIndex !==-1)
+                } while (redoParamIndex !== -1)
             }
 
             function saveParameters(resultParameters) {
@@ -200,7 +200,7 @@ const deployStack = function (options) {
                         finalResult.resultErrors.map(error => {
                             const adjustParameter = error.name
                             simplify.consoleWithErrors(`${opName}-Verification`, `(${stackFullName}) name=${adjustParameter} type=${error.type} is not set.`)
-                            finalResult.resultParameters[adjustParameter] = readlineSync.question(`\n * Enter parameter value for ${CPROMPT}${adjustParameter}${CRESET} :`)    
+                            finalResult.resultParameters[adjustParameter] = readlineSync.question(`\n * Enter parameter value for ${CPROMPT}${adjustParameter}${CRESET} :`)
                         })
                         saveParameters(finalResult.resultParameters)
                         createStack(templateURL, finalResult.resultParameters, stackPluginModule)
@@ -565,6 +565,7 @@ const getDirectories = source =>
     fs.readdirSync(source, { withFileTypes: true })
         .filter(dirent => dirent.isDirectory())
         .map(dirent => dirent.name)
+
 const showTemplates = (templateFolderName, promptDescription) => {
     console.log(promptDescription)
     getDirectories(path.join(__dirname, templateFolderName)).map((template, idx) => {
@@ -653,7 +654,7 @@ var optCMD = (argv._.length > 1 ? argv._[1] : undefined)
 var cmdArg = argv['stack'] || argv['function'] || optCMD
 var cmdType = cmdArg ? fs.existsSync(path.resolve(argv.location, cmdArg, "template.yaml")) ? "CF-Stack" : "Function" : undefined
 
-const showSubscriptionPlan = function(userSession) {
+const showSubscriptionPlan = function (userSession) {
     currentSubscription = (userSession.getIdToken().payload[`subscription`] || 'Basic')
     const currentVersion = PLAN_DEFINITIONS[currentSubscription.toUpperCase()].Version || 'Community'
     console.log(`\n`, ` * ${CPROMPT}Welcome back${CRESET} : ${userSession.getIdToken().payload[`name`]}`)
@@ -727,7 +728,7 @@ const processCLI = function (cmdRun, session) {
             `BASIC - ${PLAN_DEFINITIONS["BASIC"].Description}`,
             `PREMIUM - ${PLAN_DEFINITIONS["PREMIUM"].Description}`],
             ` - You are about to change your subscription from ${CPROMPT}${currentSubscription.toUpperCase()}${CRESET} plan to: `)
-        if (subscriptionPlan >=0) {
+        if (subscriptionPlan >= 0) {
             const newSubscription = Object.keys(PLAN_DEFINITIONS).find(x => PLAN_DEFINITIONS[x].Index == (subscriptionPlan))
             console.log(`\n * You have selected to pay ${PLAN_DEFINITIONS[newSubscription].Subscription}$ for ${newSubscription} version!`)
             console.log(` * Unfortunately, this feature is not available at the moment. \n`)
@@ -792,7 +793,7 @@ const processCLI = function (cmdRun, session) {
     }
 }
 
-if (["LOGIN", "REGISTER"].indexOf(cmdOPS) == -1) {
+if (["INIT", "LOGIN", "REGISTER"].indexOf(cmdOPS) == -1) {
     getCurrentSession().then(session => {
         if (session && session.isValid()) {
             showSubscriptionPlan(session)
@@ -807,17 +808,19 @@ if (["LOGIN", "REGISTER"].indexOf(cmdOPS) == -1) {
         console.log(` *`, `Register: \tsimplify-cli register`, `\n`)
     })
 } else {
-    if (["INIT"].indexOf(cmdOPS) == -1 && !fs.existsSync(path.resolve(argv.config || 'config.json'))) {
-        console.log(`\n`,`- ${CPROMPT}This is not a valid environment${CRESET}. You must create an environment first.`)
-        console.log(`\n`,`*`, `Create environment: \tsimplify-cli init`, `\n`)
-    } else {
+    if (["INIT", "LOGIN", "REGISTER"].indexOf(cmdOPS) == -1 && !fs.existsSync(path.resolve(argv.config || 'config.json'))) {
+        console.log(`\n`, `- ${CPROMPT}This is not a valid environment${CRESET}. You must create an environment first.`)
+        console.log(`\n`, `*`, `Create environment: \tsimplify-cli init`, `\n`)
+    } else if (["INIT"].indexOf(cmdOPS) == -1) {
         const configInfo = JSON.parse(fs.readFileSync(path.resolve(argv.config || 'config.json')))
         if (configInfo.hasOwnProperty('Profile') && configInfo.hasOwnProperty('Region') && configInfo.hasOwnProperty('Bucket')) {
-            processCLI(cmdOPS)   
+            processCLI(cmdOPS)
         } else {
-            console.log(`\n`,`- ${CPROMPT}This is not a valid environment${CRESET}. The ${argv.config || 'config.json'} is incorrect.`)
-            console.log(`\n`,`*`, `Create environment: \tsimplify-cli init`, `\n`)
+            console.log(`\n`, `- ${CPROMPT}This is not a valid environment${CRESET}. The ${argv.config || 'config.json'} is incorrect.`)
+            console.log(`\n`, `*`, `Create environment: \tsimplify-cli init`, `\n`)
         }
+    } else {
+        processCLI("INIT")
     }
 }
 
