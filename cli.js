@@ -634,7 +634,7 @@ const showAvailableStacks = (options, promptDescription) => {
 
 showBoxBanner()
 
-var argv = require('yargs').usage('simplify-cli init | regiter | login | logout | upgrade | create | deploy | destroy | list [options]')
+var argv = require('yargs').usage('simplify-cli init | register | login | logout | upgrade | create | deploy | destroy | list [options]')
     .string('help').describe('help', 'Display Help for a specific command')
     .string('name').describe('name', 'Specify a name for the created project')
     .string('template').describe('template', 'Init nodejs or python template')

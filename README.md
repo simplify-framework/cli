@@ -14,7 +14,7 @@ $ simplify-cli init
  - Choose an S3 Bucket name? (starwars-0920) 
  - Choose an Environment? (demo) 
 
-$ simplify-cli regiter
+$ simplify-cli register
 $ simplify-cli login
 $ simplify-cli create --help
 
