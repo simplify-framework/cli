@@ -12,20 +12,12 @@ const provider = require('simplify-sdk/provider');
 const readlineSync = require('readline-sync');
 const { options } = require('yargs');
 const { exec } = require('child_process');
-const { authenticate, registerUser, confirmRegistration, getCurrentSession, userSignOut } = require('./cognito')
-const PLAN_DEFINITIONS = {
-    "BASIC": {
-        "Index": 0,
-        "Version": "Community",
-        "Description": "FREE membership with community access to development resources",
-        "Subscription": 0
-    },
-    "PREMIUM": {
-        "Index": 1,
-        "Version": "Enterprise",
-        "Description": "10$ per month with unlimited access to productionr ready resources",
-        "Subscription": 10
-    }
+const { authenticate, registerUser, confirmRegistration, getCurrentSession, userSignOut } = require('./cognito');
+const yargs = require('yargs');
+const { PLAN_DEFINITIONS, ALLOWED_COMANDS, AVAILABLE_COMMANDS } = require('./const')
+const getOptionDesc = function(cmdOpt, optName) {
+    const options = (AVAILABLE_COMMANDS.find(cmd => cmd.name == cmdOpt) || { options: [] }).options
+    return (options.find(opt => opt.name == optName) || { desc : '' }).desc
 }
 var currentSubscription = "Basic"
 var functionMeta = { lashHash256: null }
@@ -634,33 +626,51 @@ const showAvailableStacks = (options, promptDescription) => {
 
 showBoxBanner()
 
-var argv = require('yargs').usage('simplify-cli init | regiter | login | logout | upgrade | create | deploy | destroy | list [options]')
-    .string('help').describe('help', 'Display Help for a specific command')
-    .string('name').describe('name', 'Specify a name for the created project')
-    .string('template').describe('template', 'Init nodejs or python template')
-    .string('data').describe('data', 'Saved parameters in JSON file').default('data', 'parameters.json')
-    .string('config').alias('c', 'config').describe('config', 'function configuration').default('config', 'config.json')
-    .string('policy').alias('p', 'policy').describe('policy', 'function policy to attach').default('policy', 'policy.json')
-    .string('role').alias('r', 'role').describe('role', 'function policy to attach').default('role', 'role.json')
-    .string('source').alias('s', 'source').describe('source', 'function source to deploy').default('source', 'src')
-    .string('env').alias('e', 'env').describe('env', 'environment name')
-    .string('region').describe('region', 'region name to deploy')
-    .string('exclude').describe('exclude', 'files or folders to exclude for a zip')
-    .string('env-file').describe('env-file', 'environment variable file').default('env-file', '.env')
-    .boolean('update').describe('update', 'force update function code').default('update', false)
-    .boolean('publish').describe('publish', 'force publish with a version').default('publish', false)
-    .boolean('layer').describe('layer', 'deploy source folder as layer').default('layer', false)
-    .string('location').describe('location', 'stack folder to deploy').default('location', '')
-    .string('stack').describe('stack', 'stack name to deploy')
-    .string('function').describe('function', 'function name to deploy')
-    .string('composer').describe('composer', 'multistacks composer to deploy')
-    .demandOption(['c', 'p', 's']).demandCommand(1).argv;
+var argv = require('yargs').usage('simplify-cli command [options]')
+    .string('help').describe('help', 'display help for a specific command')
+    .string('name').describe('name', getOptionDesc('create', 'name'))
+    .string('template').describe('template', getOptionDesc('create', 'template'))
+    .string('stack').describe('stack', getOptionDesc('deploy', 'stack'))
+    .string('function').describe('function', getOptionDesc('deploy', 'function'))
+    .string('location').describe('location', getOptionDesc('deploy', 'location')).default('location', '')
+    .string('parameters').describe('parameters', getOptionDesc('deploy', 'parameters')).default('parameters', 'parameters.json')
+    .string('config').describe('config', 'function configuration').default('config', 'config.json')
+    .string('policy').describe('policy', 'function policy to attach').default('policy', 'policy.json')
+    .string('role').describe('role', 'function policy to attach').default('role', 'role.json')
+    .string('source').describe('source', 'function source to deploy').default('source', 'src')
+    .string('env').describe('env', 'environment name')
+    .string('region').describe('region', getOptionDesc('deploy', 'region'))
+    .string('dotenv').describe('dotenv', getOptionDesc('deploy', 'dotenv')).default('dotenv', '.env')
+    .boolean('update').describe('update', getOptionDesc('deploy', 'update')).default('update', false)
+    .boolean('publish').describe('publish', getOptionDesc('deploy', 'publish')).default('publish', false)
+    .boolean('layer').describe('layer', getOptionDesc('deploy', 'layer')).default('layer', false)
+    .demandCommand(0).argv;
 
 var cmdOPS = (argv._[0] || 'list').toUpperCase()
 var optCMD = (argv._.length > 1 ? argv._[1] : undefined)
 var cmdArg = argv['stack'] || argv['function'] || optCMD
 var cmdType = cmdArg ? fs.existsSync(path.resolve(argv.location, cmdArg, "template.yaml")) ? "CF-Stack" : "Function" : undefined
-
+if (argv._.length == 0) {
+    yargs.showHelp()
+    console.log(`\n`, ` * ${CBRIGHT}Supported command list${CRESET}:`, '\n')
+    AVAILABLE_COMMANDS.map((cmd, idx) => {
+        console.log(`\t- ${CPROMPT}${cmd.name.toLowerCase()}${CRESET} : ${cmd.desc}`)
+    })
+    console.log(`\n`)
+    process.exit(0)
+} else {
+    if (typeof argv['help'] !== 'undefined') {
+        console.log(`\n`, ` * ${CBRIGHT}Supported options${CRESET}:`, '\n')
+        const cmdResult = AVAILABLE_COMMANDS.find(cmd => cmdOPS.toLowerCase() == cmd.name)
+        if (cmdResult) {
+            cmdResult.options.map((cmd, idx) => {
+                console.log(`\t${CPROMPT}--${cmd.name.toLowerCase()}${CRESET} : ${cmd.desc}`)
+            })
+        }
+        console.log(`\n`)
+        process.exit(0)
+    }
+}
 const showSubscriptionPlan = function (userSession) {
     currentSubscription = (userSession.getIdToken().payload[`subscription`] || 'Basic')
     const currentVersion = PLAN_DEFINITIONS[currentSubscription.toUpperCase()].Version || 'Community'
@@ -679,8 +689,8 @@ const processCLI = function (cmdRun, session) {
                 configStackName: cmdArg,
                 configStackFolder: argv.location,
                 envName: argv.env,
-                envFile: argv['env-file'],
-                dataFile: argv.data,
+                envFile: argv['dotenv'],
+                dataFile: argv.parameters,
                 roleFile: argv.role,
                 policyFile: argv.policy,
                 sourceDir: argv.source,
@@ -693,7 +703,7 @@ const processCLI = function (cmdRun, session) {
                 regionName: argv.region,
                 configFile: argv.config,
                 envName: argv.env,
-                envFile: argv['env-file']
+                envFile: argv['dotenv']
             }, `Available ${CPROMPT}stack${CRESET} and ${CPROMPT}function${CRESET} to deploy with command: simplify-cli deploy [--stack or --function] name`)
         }
 
@@ -703,14 +713,14 @@ const processCLI = function (cmdRun, session) {
                 regionName: argv.region,
                 configFile: argv.config,
                 envName: argv.env,
-                envFile: argv['env-file'],
+                envFile: argv['dotenv'],
                 functionName: cmdArg,
                 withFunctionLayer: argv.layer
             }) : destroyStack)({
                 regionName: argv.region,
                 configFile: argv.config,
                 envName: argv.env,
-                envFile: argv['env-file'],
+                envFile: argv['dotenv'],
                 configStackFolder: argv.location,
                 configStackName: cmdArg
             })
@@ -719,7 +729,7 @@ const processCLI = function (cmdRun, session) {
                 regionName: argv.region,
                 configFile: argv.config,
                 envName: argv.env,
-                envFile: argv['env-file']
+                envFile: argv['dotenv']
             }, `Select a ${CPROMPT}stack${CRESET} or ${CPROMPT}function${CRESET} to destroy with command: simplify-cli destroy [--stack or --function] name`)
         }
     } else if (cmdRun === "LOGOUT") {
@@ -774,7 +784,7 @@ const processCLI = function (cmdRun, session) {
             regionName: argv.region,
             configFile: argv.config,
             envName: argv.env,
-            envFile: argv['env-file']
+            envFile: argv['dotenv']
         }, `Deployed ${CPROMPT}stacks${CRESET} and ${CPROMPT}functions${CRESET} managed by Simplify CLI:`)
     } else if (cmdRun === "INIT") {
         function verifyAccountAccess(options, callback, errorHandler) {
@@ -904,13 +914,10 @@ const processCLI = function (cmdRun, session) {
     } else if (cmdRun === "CREATE") {
         const templateName = argv.template || optCMD
         if (typeof templateName === "undefined") {
-            if (typeof argv.help !== "undefined") {
-                showTemplates("basic/functions", `\nCreate a function template: simplify-cli create [--template=]ShowLog | Detector\n`)
-                showTemplates("basic/stacks", `\nOr create a deployment stack: simplify-cli create [--template=]CloudFront | CognitoUser...\n`)
-                console.log(`\n *`, `Or fetch from YAML: simplify-cli create [--template=]https://github.com/awslabs/...template.yml \n`)
-            } else {
-                console.log(`\n *`, `Missing a Template: simplify-cli create [--template=]Template \n`)
-            }
+            console.log(`\nMissing a Template: simplify-cli create [--template=]Template \n`)
+            showTemplates("basic/functions", `\nCreate a function template: simplify-cli create [--template=]ShowLog | Detector\n`)
+            showTemplates("basic/stacks", `\nOr create a deployment stack: simplify-cli create [--template=]CloudFront | CognitoUser...\n`)
+            console.log(`\n *`, `Or fetch from YAML: simplify-cli create [--template=]https://github.com/awslabs/...template.yml \n`)
         } else {
             createStackOnInit(templateName, argv.location, process.env)
         }
@@ -919,7 +926,7 @@ const processCLI = function (cmdRun, session) {
     }
 }
 
-if (["INIT", "LOGIN", "REGISTER"].indexOf(cmdOPS) == -1) {
+if (ALLOWED_COMANDS.indexOf(cmdOPS) == -1) {
     if (!fs.existsSync(path.resolve(argv.config || 'config.json'))) {
         console.log(`\n`, `- ${CPROMPT}This is not a valid environment${CRESET}. You must create an environment first.`)
         console.log(`\n`, `*`, `Create environment: \tsimplify-cli init`, `\n`)
@@ -942,6 +949,8 @@ if (["INIT", "LOGIN", "REGISTER"].indexOf(cmdOPS) == -1) {
     if (["INIT"].indexOf(cmdOPS) == -1) {
         const configInfo = JSON.parse(fs.readFileSync(path.resolve(argv.config || 'config.json')))
         if (configInfo.hasOwnProperty('Profile') && configInfo.hasOwnProperty('Region') && configInfo.hasOwnProperty('Bucket')) {
+            console.log(`\n`, ` * ${CPROMPT}Opensource Support${CRESET} : Community (FREE)`)
+            console.log(`  * ${CPROMPT}Enterprise Support${CRESET} : simplify-cli register`)
             processCLI(cmdOPS)
         } else {
             console.log(`\n`, `- ${CPROMPT}This is not a valid environment${CRESET}. The ${argv.config || 'config.json'} is incorrect.`)
