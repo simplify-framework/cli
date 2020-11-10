@@ -163,7 +163,7 @@ const deployStack = function (options) {
                 const descParam = docYaml.Parameters[param].Description
                 const allowedValues = docYaml.Parameters[param].AllowedValues
                 const options = Object.keys(stackParamteres).map(x => `${x} = ${stackParamteres[x]}`)
-                const index = readlineSync.keyInSelect(allowedValues || options, `Select a value for ${CPROMPT}${param}${CRESET} parameter (${descParam || ''}) ?`, { 
+                const index = readlineSync.keyInSelect(allowedValues || options, `Select a value for ${CPROMPT}${param}${CRESET} parameter (${descParam || ''}) ?`, {
                     cancel: allowedValues ? `${CBRIGHT}None${CRESET} - (No change)` : `${CBRIGHT}Manual enter a value${CRESET} - (Continue)`
                 })
                 if (index >= 0) {
@@ -634,7 +634,7 @@ const showAvailableStacks = (options, promptDescription) => {
 
 showBoxBanner()
 
-var argv = require('yargs').usage('simplify-cli init | register | login | logout | upgrade | create | deploy | destroy | list [options]')
+var argv = require('yargs').usage('simplify-cli init | regiter | login | logout | upgrade | create | deploy | destroy | list [options]')
     .string('help').describe('help', 'Display Help for a specific command')
     .string('name').describe('name', 'Specify a name for the created project')
     .string('template').describe('template', 'Init nodejs or python template')
@@ -797,20 +797,21 @@ const processCLI = function (cmdRun, session) {
                 "us-east-2 (N. Virginia)", "us-east-1 (Ohio)", "us-west-1 (N. California)",
                 "eu-west-1 (Ireland)", "eu-central-1 (Frankfurt)", "eu-west-3 (Paris)",
                 "ap-northeast-1 (Tokyo)", "ap-southeast-2 (Sydney)", "ap-southeast-1 (Singapore)"
-            ], ` - ${CPROMPT}Choose your AWS Region?${CRESET} `, { cancel: `${CBRIGHT}others${CRESET} (Enter manually)`})
+            ], ` - ${CPROMPT}Choose your AWS Region?${CRESET} `, { cancel: `${CBRIGHT}others${CRESET} (Enter manually)` })
             if (regionIndex == -1) {
                 options.DEPLOYMENT_REGION = readlineSync.question(` - ${CPROMPT}What is your AWS Region?${CRESET} (${process.env.DEPLOYMENT_REGION || 'us-east-1'}) `) || `${process.env.DEPLOYMENT_REGION || 'us-east-1'}`
             } else {
                 options.DEPLOYMENT_REGION = REGIONS[regionIndex]
                 console.log(`\n *`, `Your have just selected the ${CBRIGHT}${options.DEPLOYMENT_REGION}${CRESET} region \n`)
             }
+            simplify.consoleWithMessage(opName, "Inspect AWS AccountID...")
             exec(`aws sts get-caller-identity --profile ${options.DEPLOYMENT_PROFILE} --query "Account" --output=text`, (err, stdout, stderr) => {
                 if (!err) {
                     options.DEPLOYMENT_ACCOUNT = readlineSync.question(` - ${CPROMPT}Confirm your AWS AccountId?${CRESET} (${stdout.trim()}) `) || `${stdout.trim()}`
                 } else {
                     options.DEPLOYMENT_ACCOUNT = readlineSync.question(` - ${CPROMPT}What is your AWS AccountId?${CRESET} (${process.env.DEPLOYMENT_ACCOUNT || 'Enter a valid AccountId'}) `) || `${process.env.DEPLOYMENT_ACCOUNT || ''}`
                 }
-                verifyAccountAccess(options, callback, function(error) {
+                verifyAccountAccess(options, callback, function (error) {
                     simplify.consoleWithErrors(`${opName}-INIT`, `${error}`)
                 })
             })
@@ -857,17 +858,24 @@ const processCLI = function (cmdRun, session) {
                 }
             })
         }
+        simplify.consoleWithMessage(opName, "Checking AWS-CLI/2...")
         exec(`aws --version`, (err, stdout, stderr) => {
-            if (err) {
-                console.log(`\n *`, `Missing awscli installed in your computer. Refer: https://docs.aws.amazon.com/cli/latest/userguide/install-cliv2.html \n`)
+            if (err || stdout.startsWith("aws-cli/1.")) {
+                if (stdout.startsWith("aws-cli/1.")) {
+                    console.log(`\n *`, `Need an upgrade to aws-cli/2 library. Refer: https://docs.aws.amazon.com/cli/latest/userguide/install-cliv2.html \n`)
+                } else {
+                    console.log(`\n *`, `Missing aws-cli/2 installed in your computer. Refer: https://docs.aws.amazon.com/cli/latest/userguide/install-cliv2.html \n`)
+                }
             } else {
                 let initOptions = {
                     PROJECT_NAME: readlineSync.question(` - ${CPROMPT}Choose a Project name?${CRESET} (${process.env.PROJECT_NAME || 'starwars'}) `) || `${process.env.PROJECT_NAME || 'starwars'}`,
                     DEPLOYMENT_BUCKET: readlineSync.question(` - ${CPROMPT}Choose an S3 Bucket name?${CRESET} (${process.env.DEPLOYMENT_BUCKET || 'starwars-0920'}) `) || `${process.env.DEPLOYMENT_BUCKET || 'starwars-0920'}`,
                     DEPLOYMENT_ENV: readlineSync.question(` - ${CPROMPT}Choose an Environment?${CRESET} (${process.env.DEPLOYMENT_ENV || 'demo'}) `) || `${process.env.DEPLOYMENT_ENV || 'demo'}`
                 }
+                simplify.consoleWithMessage(opName, "Checking Installed Profiles...")
                 exec('aws configure list-profiles', (err, stdout, stderr) => {
                     if (err) {
+                        console.log(err)
                         simplify.consoleWithErrors(`${opName}-INIT`, `${err}`)
                     } else {
                         const profileItems = stdout.split('\n').filter(x => x)
@@ -875,8 +883,8 @@ const processCLI = function (cmdRun, session) {
                             ` - ${CPROMPT}What is your AWS Profile?${CRESET}`,
                             { cancel: `I want to setup a new AWS Profile` })
                         if (selectedIndex == -1) {
-                            setupProfile(initOptions, function(options) {
-                                setupAccountId(options, function(options) {
+                            setupProfile(initOptions, function (options) {
+                                setupAccountId(options, function (options) {
                                     createStackOnInit(options, argv.location, process.env)
                                     console.log(`\n *`, `Type '--help' with CREATE to find more: simplify-cli create --help \n`)
                                 })
@@ -884,7 +892,7 @@ const processCLI = function (cmdRun, session) {
                         } else {
                             initOptions.DEPLOYMENT_PROFILE = profileItems[selectedIndex]
                             console.log(`\n *`, `Your have just selected the ${CBRIGHT}${initOptions.DEPLOYMENT_PROFILE}${CRESET} profile \n`)
-                            setupAccountId(initOptions, function(options) {
+                            setupAccountId(initOptions, function (options) {
                                 createStackOnInit(options, argv.location, process.env)
                                 console.log(`\n *`, `Type '--help' with CREATE to find more: simplify-cli create --help \n`)
                             })
