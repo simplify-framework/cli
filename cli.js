@@ -766,10 +766,14 @@ const processCLI = function (cmdRun, session) {
         const username = readlineSync.questionEMail(` - ${CPROMPT}Your identity${CRESET} : `, { limitMessage: " * Your login email is invalid." })
         const password = readlineSync.question(` - ${CPROMPT}Your password${CRESET} : `, { hideEchoBack: true })
         return new Promise(function (resolve) {
+            analytics.updateEvent("_userauth.sign_in", undefined, undefined, true)
             authenticate(username, password).then(function (userSession) {
                 showSubscriptionPlan(userSession)
                 resolve()
-            }).catch(error => console.error(error) && resolve())
+            }).catch(error => {
+                analytics.updateEvent("_userauth.auth_fail", undefined, undefined, false)
+                console.error(error) && resolve()
+            })
         })
     } else if (cmdRun === "UPGRADE") {
         const subscriptionPlan = readlineSync.keyInSelect([
@@ -792,6 +796,7 @@ const processCLI = function (cmdRun, session) {
             min: 8, max: 24,
             confirmMessage: ` - ${CPROMPT}Confirm password${CRESET} : `
         })
+        analytics.updateEvent("_userauth.sign_up", undefined, undefined, true)
         registerUser(fullname, username, password).then(function (user) {
             const activation = readlineSync.question(` - ${CPROMPT}Activation code${CRESET} : `, { hideEchoBack: false })
             confirmRegistration(user.username, activation).then(function (resultCode) {
