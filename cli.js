@@ -11,13 +11,14 @@ const utilities = require('simplify-sdk/utilities')
 const provider = require('simplify-sdk/provider');
 const readlineSync = require('readline-sync');
 const { options } = require('yargs');
+const analytics = require('./pinpoint');
 const { exec } = require('child_process');
 const { authenticate, registerUser, confirmRegistration, getCurrentSession, userSignOut } = require('./cognito');
 const yargs = require('yargs');
 const { PLAN_DEFINITIONS, ALLOWED_COMANDS, AVAILABLE_COMMANDS } = require('./const')
-const getOptionDesc = function(cmdOpt, optName) {
+const getOptionDesc = function (cmdOpt, optName) {
     const options = (AVAILABLE_COMMANDS.find(cmd => cmd.name == cmdOpt) || { options: [] }).options
-    return (options.find(opt => opt.name == optName) || { desc : '' }).desc
+    return (options.find(opt => opt.name == optName) || { desc: '' }).desc
 }
 var currentSubscription = "Basic"
 var functionMeta = { lashHash256: null }
@@ -75,167 +76,172 @@ const deployStack = function (options) {
     config.FunctionName = `${process.env.FUNCTION_NAME}-${process.env.DEPLOYMENT_ENV}`
     const stackFullName = `${process.env.PROJECT_NAME || config.FunctionName}-${configStackName}-${process.env.DEPLOYMENT_ENV}`
     const stackExtension = path.resolve(configStackFolder, configStackName, `extension`)
-    provider.setConfig(config).then(function () {
-        simplify.uploadLocalFile({
-            adaptor: provider.getStorage(),
-            ...{ bucketKey: config.Bucket.Key, inputLocalFile: stackYamlFile }
-        }).then(function (uploadInfo) {
-            function processStackData(stackData) {
-                let outputData = {}
-                outputData[configStackName] = { "LastUpdate": Date.now(), "Type": "CF-Stack" }
-                stackData.Outputs.map(function (o) {
-                    outputData[configStackName][o.OutputKey] = o.OutputValue
-                })
-                if (fs.existsSync(stackConfigFile)) {
-                    outputData = { ...JSON.parse(fs.readFileSync(stackConfigFile)), ...outputData }
-                }
-                const pathDirName = path.dirname(path.resolve(stackConfigFile))
-                if (!fs.existsSync(pathDirName)) {
-                    fs.mkdirSync(pathDirName, { recursive: true })
-                }
-                fs.writeFileSync(stackConfigFile, JSON.stringify(outputData, null, 4))
-                simplify.finishWithMessage(`${configStackName}`, `${outputData[configStackName].Endpoint || outputData[configStackName].Region}`)
-                return outputData
-            }
-            function createStack(stackTemplate, parameters, stackPluginModule) {
-                simplify.createOrUpdateStackOnComplete({
-                    adaptor: provider.getResource(),
-                    ...{
-                        stackName: `${stackFullName}`,
-                        stackParameters: {
-                            ...parameters
-                        },
-                        stackTemplate: stackTemplate
+    return new Promise(function (resolve) {
+        provider.setConfig(config).then(function () {
+            simplify.uploadLocalFile({
+                adaptor: provider.getStorage(),
+                ...{ bucketKey: config.Bucket.Key, inputLocalFile: stackYamlFile }
+            }).then(function (uploadInfo) {
+                function processStackData(stackData) {
+                    let outputData = {}
+                    outputData[configStackName] = { "LastUpdate": Date.now(), "Type": "CF-Stack" }
+                    stackData.Outputs.map(function (o) {
+                        outputData[configStackName][o.OutputKey] = o.OutputValue
+                    })
+                    if (fs.existsSync(stackConfigFile)) {
+                        outputData = { ...JSON.parse(fs.readFileSync(stackConfigFile)), ...outputData }
                     }
-                }).then(function (stackData) {
-                    if (stackPluginModule && typeof stackPluginModule.postCreation === 'function') {
-                        stackPluginModule.postCreation({ simplify, provider, config }, configStackName, stackData).then(result => processStackData(result))
-                        simplify.consoleWithMessage(`${opName}-PostCreation`, `${stackExtension + '.js'} - (Executed)`)
-                    } else {
-                        simplify.consoleWithMessage(`${opName}-PostCreation`, `${stackExtension + '.js'} - (Skipped)`)
-                        processStackData(stackData)
+                    const pathDirName = path.dirname(path.resolve(stackConfigFile))
+                    if (!fs.existsSync(pathDirName)) {
+                        fs.mkdirSync(pathDirName, { recursive: true })
                     }
-                }).catch(error => {
-                    simplify.finishWithErrors(`${opName}-Create${configStackName}`, getErrorMessage(error))
-                })
-            }
-            function mappingParameters(docYaml, parameters) {
-                let resultParameters = {}
-                let resultErrors = null
-                let stackOutputData = {}
-                let stackParamteres = {}
-                if (fs.existsSync(stackConfigFile)) {
-                    stackOutputData = JSON.parse(fs.readFileSync(stackConfigFile))
-                    Object.keys(stackOutputData).map(stackName => {
-                        Object.keys(stackOutputData[stackName]).map(param => {
-                            if (["LastUpdate", "Type"].indexOf(param) == -1) {
-                                stackParamteres[`${stackName}.${CUNDERLINE}${param}${CRESET}`] = stackOutputData[stackName][param]
+                    fs.writeFileSync(stackConfigFile, JSON.stringify(outputData, null, 4))
+                    simplify.finishWithMessage(`${configStackName}`, `${outputData[configStackName].Endpoint || outputData[configStackName].Region}`)
+                    return outputData
+                }
+                function createStack(stackTemplate, parameters, stackPluginModule) {
+                    return new Promise(function (resolve) {
+                        simplify.createOrUpdateStackOnComplete({
+                            adaptor: provider.getResource(),
+                            ...{
+                                stackName: `${stackFullName}`,
+                                stackParameters: {
+                                    ...parameters
+                                },
+                                stackTemplate: stackTemplate
                             }
+                        }).then(function (stackData) {
+                            if (stackPluginModule && typeof stackPluginModule.postCreation === 'function') {
+                                stackPluginModule.postCreation({ simplify, provider, config }, configStackName, stackData).then(result => processStackData(result))
+                                simplify.consoleWithMessage(`${opName}-PostCreation`, `${stackExtension + '.js'} - (Executed)`)
+                            } else {
+                                simplify.consoleWithMessage(`${opName}-PostCreation`, `${stackExtension + '.js'} - (Skipped)`)
+                                processStackData(stackData)
+                            }
+                            resolve()
+                        }).catch(error => {
+                            simplify.finishWithErrors(`${opName}-Create${configStackName}`, getErrorMessage(error)) && resolve()
                         })
                     })
                 }
-                Object.keys(docYaml.Parameters).map(paramName => {
-                    function getSimilarParameter(stackParamteres, paramName) {
-                        let foundParam = stackParamteres[Object.keys(stackParamteres).find(x => paramName == x.replace(/\x1b\[[0-9;]*m/g, "").replace(/[\W_]/g, ''))]
-                        return foundParam || stackParamteres[Object.keys(stackParamteres).find(x => paramName.indexOf(x.split('.')[1].replace(/\x1b\[[0-9;]*m/g, "")) >= 0)]
-                    }
-                    resultParameters[paramName] = parameters[paramName] || getSimilarParameter(stackParamteres, paramName)
-                    if (!resultParameters[paramName]) {
-                        if (!resultErrors) resultErrors = []
-                        resultErrors.push({
-                            name: paramName,
-                            type: docYaml.Parameters[paramName].Type
+                function mappingParameters(docYaml, parameters) {
+                    let resultParameters = {}
+                    let resultErrors = null
+                    let stackOutputData = {}
+                    let stackParamteres = {}
+                    if (fs.existsSync(stackConfigFile)) {
+                        stackOutputData = JSON.parse(fs.readFileSync(stackConfigFile))
+                        Object.keys(stackOutputData).map(stackName => {
+                            Object.keys(stackOutputData[stackName]).map(param => {
+                                if (["LastUpdate", "Type"].indexOf(param) == -1) {
+                                    stackParamteres[`${stackName}.${CUNDERLINE}${param}${CRESET}`] = stackOutputData[stackName][param]
+                                }
+                            })
                         })
                     }
-                })
-                return { resultParameters, resultErrors, stackOutputData, stackParamteres }
-            }
-
-            function selectParameter(param, docYaml, resultParameters, stackParamteres) {
-                const descParam = docYaml.Parameters[param].Description
-                const allowedValues = docYaml.Parameters[param].AllowedValues
-                const options = Object.keys(stackParamteres).map(x => `${x} = ${stackParamteres[x]}`)
-                const index = readlineSync.keyInSelect(allowedValues || options, `Select a value for ${CPROMPT}${param}${CRESET} parameter (${descParam || ''}) ?`, {
-                    cancel: allowedValues ? `${CBRIGHT}None${CRESET} - (No change)` : `${CBRIGHT}Manual enter a value${CRESET} - (Continue)`
-                })
-                if (index >= 0) {
-                    resultParameters[param] = stackParamteres[Object.keys(stackParamteres)[index]]
-                } else if (!allowedValues) {
-                    resultParameters[param] = readlineSync.question(`\n * Enter parameter value for ${CPROMPT}${param}${CRESET} (${docYaml.Parameters[param].Default || ''}) :`) || docYaml.Parameters[param].Default
-                }
-            }
-
-            function reviewParameters(resultParameters, stackParamteres, docYaml) {
-                let redoParamIndex = -1
-                do {
-                    const reviewOptions = Object.keys(resultParameters).map(x => `${x} = ${resultParameters[x] || '(not set)'}`)
-                    redoParamIndex = readlineSync.keyInSelect(reviewOptions, `Do you want to change any of those parameters?`, { cancel: `${CBRIGHT}Continue to deploy${CRESET} - (No change)` })
-                    if (redoParamIndex !== -1) {
-                        selectParameter(Object.keys(resultParameters)[redoParamIndex], docYaml, resultParameters, stackParamteres)
-                    }
-                } while (redoParamIndex !== -1)
-            }
-
-            function saveParameters(resultParameters) {
-                fs.writeFileSync(path.resolve(configStackFolder, configStackName, dataFile), JSON.stringify(resultParameters, null, 4))
-            }
-
-            function processParameters(resultErrors, resultParameters, stackParamteres, docYaml) {
-                if (!resultErrors) {
-                    reviewParameters(resultParameters, stackParamteres, docYaml)
-                    saveParameters(resultParameters)
-                    createStack(templateURL, resultParameters, stackPluginModule)
-                } else {
-                    resultErrors.map(error => {
-                        selectParameter(error.name, docYaml, resultParameters, stackParamteres)
+                    Object.keys(docYaml.Parameters).map(paramName => {
+                        function getSimilarParameter(stackParamteres, paramName) {
+                            let foundParam = stackParamteres[Object.keys(stackParamteres).find(x => paramName == x.replace(/\x1b\[[0-9;]*m/g, "").replace(/[\W_]/g, ''))]
+                            return foundParam || stackParamteres[Object.keys(stackParamteres).find(x => paramName.indexOf(x.split('.')[1].replace(/\x1b\[[0-9;]*m/g, "")) >= 0)]
+                        }
+                        resultParameters[paramName] = parameters[paramName] || getSimilarParameter(stackParamteres, paramName)
+                        if (!resultParameters[paramName]) {
+                            if (!resultErrors) resultErrors = []
+                            resultErrors.push({
+                                name: paramName,
+                                type: docYaml.Parameters[paramName].Type
+                            })
+                        }
                     })
-                    reviewParameters(resultParameters, stackParamteres, docYaml)
-                    const finalResult = mappingParameters(docYaml, resultParameters)
-                    if (!finalResult.resultErrors) {
+                    return { resultParameters, resultErrors, stackOutputData, stackParamteres }
+                }
+
+                function selectParameter(param, docYaml, resultParameters, stackParamteres) {
+                    const descParam = docYaml.Parameters[param].Description
+                    const allowedValues = docYaml.Parameters[param].AllowedValues
+                    const options = Object.keys(stackParamteres).map(x => `${x} = ${stackParamteres[x]}`)
+                    const index = readlineSync.keyInSelect(allowedValues || options, `Select a value for ${CPROMPT}${param}${CRESET} parameter (${descParam || ''}) ?`, {
+                        cancel: allowedValues ? `${CBRIGHT}None${CRESET} - (No change)` : `${CBRIGHT}Manual enter a value${CRESET} - (Continue)`
+                    })
+                    if (index >= 0) {
+                        resultParameters[param] = stackParamteres[Object.keys(stackParamteres)[index]]
+                    } else if (!allowedValues) {
+                        resultParameters[param] = readlineSync.question(`\n * Enter parameter value for ${CPROMPT}${param}${CRESET} (${docYaml.Parameters[param].Default || ''}) :`) || docYaml.Parameters[param].Default
+                    }
+                }
+
+                function reviewParameters(resultParameters, stackParamteres, docYaml) {
+                    let redoParamIndex = -1
+                    do {
+                        const reviewOptions = Object.keys(resultParameters).map(x => `${x} = ${resultParameters[x] || '(not set)'}`)
+                        redoParamIndex = readlineSync.keyInSelect(reviewOptions, `Do you want to change any of those parameters?`, { cancel: `${CBRIGHT}Continue to deploy${CRESET} - (No change)` })
+                        if (redoParamIndex !== -1) {
+                            selectParameter(Object.keys(resultParameters)[redoParamIndex], docYaml, resultParameters, stackParamteres)
+                        }
+                    } while (redoParamIndex !== -1)
+                }
+
+                function saveParameters(resultParameters) {
+                    fs.writeFileSync(path.resolve(configStackFolder, configStackName, dataFile), JSON.stringify(resultParameters, null, 4))
+                }
+
+                function processParameters(resultErrors, resultParameters, stackParamteres, docYaml) {
+                    if (!resultErrors) {
+                        reviewParameters(resultParameters, stackParamteres, docYaml)
                         saveParameters(resultParameters)
-                        createStack(templateURL, finalResult.resultParameters, stackPluginModule)
+                        return createStack(templateURL, resultParameters, stackPluginModule)
                     } else {
-                        finalResult.resultErrors.map(error => {
-                            const adjustParameter = error.name
-                            simplify.consoleWithErrors(`${opName}-Verification`, `(${stackFullName}) name=${adjustParameter} type=${error.type} is not set.`)
-                            finalResult.resultParameters[adjustParameter] = readlineSync.question(`\n * Enter parameter value for ${CPROMPT}${adjustParameter}${CRESET} :`)
+                        resultErrors.map(error => {
+                            selectParameter(error.name, docYaml, resultParameters, stackParamteres)
                         })
-                        saveParameters(finalResult.resultParameters)
-                        createStack(templateURL, finalResult.resultParameters, stackPluginModule)
+                        reviewParameters(resultParameters, stackParamteres, docYaml)
+                        const finalResult = mappingParameters(docYaml, resultParameters)
+                        if (!finalResult.resultErrors) {
+                            saveParameters(resultParameters)
+                            return createStack(templateURL, finalResult.resultParameters, stackPluginModule)
+                        } else {
+                            finalResult.resultErrors.map(error => {
+                                const adjustParameter = error.name
+                                simplify.consoleWithErrors(`${opName}-Verification`, `(${stackFullName}) name=${adjustParameter} type=${error.type} is not set.`)
+                                finalResult.resultParameters[adjustParameter] = readlineSync.question(`\n * Enter parameter value for ${CPROMPT}${adjustParameter}${CRESET} :`)
+                            })
+                            saveParameters(finalResult.resultParameters)
+                            return createStack(templateURL, finalResult.resultParameters, stackPluginModule)
+                        }
                     }
                 }
-            }
 
-            var templateURL = uploadInfo.Location
-            try {
-                const docYaml = yamlParse(fs.readFileSync(stackYamlFile));
-                var parameters = {
-                    Environment: process.env.DEPLOYMENT_ENV
+                var templateURL = uploadInfo.Location
+                try {
+                    const docYaml = yamlParse(fs.readFileSync(stackYamlFile));
+                    var parameters = {
+                        Environment: process.env.DEPLOYMENT_ENV
+                    }
+                    if (fs.existsSync(path.resolve(configStackFolder, configStackName, dataFile))) {
+                        parameters = { ...parameters, ...JSON.parse(fs.readFileSync(path.resolve(configStackFolder, configStackName, dataFile))) }
+                    }
+                    var stackPluginModule = {}
+                    if (fs.existsSync(stackExtension + '.js')) {
+                        stackPluginModule = require(stackExtension)
+                    }
+                    if (typeof stackPluginModule.preCreation === 'function') {
+                        const { resultParameters, stackOutputData, stackParamteres } = mappingParameters(docYaml, parameters)
+                        stackPluginModule.preCreation({ simplify, provider, config }, configStackName, resultParameters, docYaml, stackOutputData).then(parameterResult => {
+                            const { resultParameters, resultErrors } = mappingParameters(docYaml, parameterResult)
+                            simplify.consoleWithMessage(`${opName}-PreCreation`, `${stackExtension + '.js'} - (Executed)`)
+                            processParameters(resultErrors, resultParameters, stackParamteres, docYaml).then(() => resolve()).catch(() => resolve())
+                        })
+                    } else {
+                        simplify.consoleWithMessage(`${opName}-PreCreation`, `${stackExtension + '.js'} - (Skipped)`)
+                        const { resultParameters, resultErrors, stackParamteres } = mappingParameters(docYaml, parameters)
+                        processParameters(resultErrors, resultParameters, stackParamteres, docYaml).then(() => resolve()).catch(() => resolve())
+                    }
+                } catch (error) {
+                    simplify.finishWithErrors(`${opName}-LoadYAMLResource:`, getErrorMessage(error)) && resolve()
                 }
-                if (fs.existsSync(path.resolve(configStackFolder, configStackName, dataFile))) {
-                    parameters = { ...parameters, ...JSON.parse(fs.readFileSync(path.resolve(configStackFolder, configStackName, dataFile))) }
-                }
-                var stackPluginModule = {}
-                if (fs.existsSync(stackExtension + '.js')) {
-                    stackPluginModule = require(stackExtension)
-                }
-                if (typeof stackPluginModule.preCreation === 'function') {
-                    const { resultParameters, stackOutputData, stackParamteres } = mappingParameters(docYaml, parameters)
-                    stackPluginModule.preCreation({ simplify, provider, config }, configStackName, resultParameters, docYaml, stackOutputData).then(parameterResult => {
-                        const { resultParameters, resultErrors } = mappingParameters(docYaml, parameterResult)
-                        simplify.consoleWithMessage(`${opName}-PreCreation`, `${stackExtension + '.js'} - (Executed)`)
-                        processParameters(resultErrors, resultParameters, stackParamteres, docYaml)
-                    })
-                } else {
-                    simplify.consoleWithMessage(`${opName}-PreCreation`, `${stackExtension + '.js'} - (Skipped)`)
-                    const { resultParameters, resultErrors, stackParamteres } = mappingParameters(docYaml, parameters)
-                    processParameters(resultErrors, resultParameters, stackParamteres, docYaml)
-                }
-            } catch (error) {
-                simplify.finishWithErrors(`${opName}-LoadYAMLResource:`, getErrorMessage(error))
-            }
-        })
-    }).catch(error => simplify.finishWithErrors(`${opName}-LoadYAMLResource:`, getErrorMessage(error)))
+            })
+        }).catch(error => simplify.finishWithErrors(`${opName}-LoadYAMLResource:`, getErrorMessage(error)) && resolve())
+    })
 }
 
 const destroyStack = function (options) {
@@ -248,65 +254,65 @@ const destroyStack = function (options) {
     var config = simplify.getInputConfig(path.resolve(configFile || 'config.json'), envOptions)
     const stackConfigFile = path.resolve(config.OutputFolder, envName || process.env.DEPLOYMENT_ENV, 'StackConfig.json')
     const stackList = fs.existsSync(stackConfigFile) ? JSON.parse(fs.readFileSync(stackConfigFile)) : {}
-    provider.setConfig(config).then(function () {
-        function deleteStack(stackName, stackPluginModule) {
-            const stackExtension = path.resolve(configStackFolder, stackName, `extension`)
-            const stackFullName = `${process.env.PROJECT_NAME || config.FunctionName}-${stackName}-${process.env.DEPLOYMENT_ENV}`
-            simplify.consoleWithMessage(`${opName}-CleanupResource`, `StackName - (${stackFullName})`)
-            simplify.deleteStackOnComplete({
-                adaptor: provider.getResource(),
-                ...{
-                    stackName: `${stackFullName}`,
-                }
-            }).then(function (stackData) {
-                if (stackPluginModule && typeof stackPluginModule.postCleanup === 'function') {
-                    stackPluginModule.postCleanup({ simplify, provider, config }, stackName, stackList, stackData).then(result => {
-                        delete stackList[stackName]
-                        fs.writeFileSync(stackConfigFile, JSON.stringify(stackList, null, 4))
-                        simplify.consoleWithMessage(`${opName}-PostCleanup`, `${stackExtension + '.js'} - (Executed)`)
-                        simplify.consoleWithMessage(`${opName}-${stackName}`, `${stackConfigFile} - (Changed)`)
+    return new Promise(function (resolve) {
+        provider.setConfig(config).then(function () {
+            function deleteStack(stackName, stackPluginModule) {
+                const stackExtension = path.resolve(configStackFolder, stackName, `extension`)
+                const stackFullName = `${process.env.PROJECT_NAME || config.FunctionName}-${stackName}-${process.env.DEPLOYMENT_ENV}`
+                simplify.consoleWithMessage(`${opName}-CleanupResource`, `StackName - (${stackFullName})`)
+                return new Promise(function (resolve) {
+                    simplify.deleteStackOnComplete({
+                        adaptor: provider.getResource(),
+                        ...{
+                            stackName: `${stackFullName}`,
+                        }
+                    }).then(function (stackData) {
+                        if (stackPluginModule && typeof stackPluginModule.postCleanup === 'function') {
+                            stackPluginModule.postCleanup({ simplify, provider, config }, stackName, stackList, stackData).then(result => {
+                                delete stackList[stackName]
+                                fs.writeFileSync(stackConfigFile, JSON.stringify(stackList, null, 4))
+                                simplify.consoleWithMessage(`${opName}-PostCleanup`, `${stackExtension + '.js'} - (Executed)`)
+                                simplify.consoleWithMessage(`${opName}-${stackName}`, `${stackConfigFile} - (Changed)`)
+                                resolve()
+                            }).catch(function (error) {
+                                simplify.finishWithErrors(`${opName}-CleanupResource:`, getErrorMessage(error)) && resolve()
+                            })
+                        } else {
+                            delete stackList[stackName]
+                            fs.writeFileSync(stackConfigFile, JSON.stringify(stackList, null, 4))
+                            simplify.consoleWithMessage(`${opName}-PostCleanup`, `${stackExtension + '.js'} - (Skipped)`)
+                            simplify.consoleWithMessage(`${opName}-${stackName}`, `${stackConfigFile} - (Changed)`)
+                            resolve()
+                        }
                     }).catch(function (error) {
-                        simplify.finishWithErrors(`${opName}-CleanupResource:`, getErrorMessage(error))
+                        simplify.finishWithErrors(`${opName}-CleanupResource:`, getErrorMessage(error)) && resolve()
                     })
-                } else {
-                    delete stackList[stackName]
-                    fs.writeFileSync(stackConfigFile, JSON.stringify(stackList, null, 4))
-                    simplify.consoleWithMessage(`${opName}-PostCleanup`, `${stackExtension + '.js'} - (Skipped)`)
-                    simplify.consoleWithMessage(`${opName}-${stackName}`, `${stackConfigFile} - (Changed)`)
-                }
-            }).catch(function (error) {
-                simplify.finishWithErrors(`${opName}-CleanupResource:`, getErrorMessage(error))
-            })
-        }
-        function deleteByStackName(stackName) {
-            var stackPluginModule = {}
-            const stackExtension = path.resolve(configStackFolder, stackName, `extension`)
-            if (fs.existsSync(stackExtension + '.js')) {
-                stackPluginModule = require(stackExtension)
-            }
-            if (stackPluginModule && typeof stackPluginModule.preCleanup === 'function') {
-                stackPluginModule.preCleanup({ simplify, provider, config }, stackName, stackList).then(stackName => {
-                    simplify.consoleWithMessage(`${opName}-PreCleanup`, `${stackExtension + '.js'} - (Executed)`)
-                    deleteStack(stackName, stackPluginModule)
-                }).catch(function (error) {
-                    simplify.finishWithErrors(`${opName}-PreCleanup`, getErrorMessage(error))
                 })
-            } else {
-                simplify.consoleWithMessage(`${opName}-PreCleanup`, `${stackExtension + '.js'} - (Skipped)`)
-                deleteStack(stackName, stackPluginModule)
             }
-        }
-        if (configStackName == "*" && fs.existsSync(stackConfigFile)) {
-            Object.keys(stackList).forEach(function (stackName) {
-                if (stackList[stackName].StackId) {
-                    deleteByStackName(stackName)
+            function deleteByStackName(stackName) {
+                var stackPluginModule = {}
+                const stackExtension = path.resolve(configStackFolder, stackName, `extension`)
+                if (fs.existsSync(stackExtension + '.js')) {
+                    stackPluginModule = require(stackExtension)
                 }
-            })
-        } else {
-            deleteByStackName(configStackName)
-        }
-    }).catch(function (error) {
-        simplify.finishWithErrors(`${opName}-LoadCredentials`, getErrorMessage(error))
+                return new Promise(function (resolve) {
+                    if (stackPluginModule && typeof stackPluginModule.preCleanup === 'function') {
+                        stackPluginModule.preCleanup({ simplify, provider, config }, stackName, stackList).then(stackName => {
+                            simplify.consoleWithMessage(`${opName}-PreCleanup`, `${stackExtension + '.js'} - (Executed)`)
+                            deleteStack(stackName, stackPluginModule).then(() => resolve()).catch(() => resolve())
+                        }).catch(function (error) {
+                            simplify.finishWithErrors(`${opName}-PreCleanup`, getErrorMessage(error)) && resolve()
+                        })
+                    } else {
+                        simplify.consoleWithMessage(`${opName}-PreCleanup`, `${stackExtension + '.js'} - (Skipped)`)
+                        deleteStack(stackName, stackPluginModule).then(() => resolve()).catch(() => resolve())
+                    }
+                })
+            }
+            deleteByStackName(configStackName).then(() => resolve()).catch(() => resolve())
+        }).catch(function (error) {
+            simplify.finishWithErrors(`${opName}-LoadCredentials`, getErrorMessage(error)) && resolve()
+        })
     })
 }
 
@@ -329,109 +335,113 @@ const deployFunction = function (options) {
     if (fs.existsSync(hashFunctionFilePath)) {
         functionMeta.lashHash256 = fs.readFileSync(hashFunctionFilePath).toString()
     }
-    return provider.setConfig(config).then(_ => {
-        const roleName = `${config.Function.FunctionName}Role`
-        return simplify.createOrUpdateFunctionRole({
-            adaptor: provider.getIAM(),
-            roleName: roleName,
-            policyDocument: policyDocument,
-            assumeRoleDocument: JSON.stringify(assumeRoleDocument)
-        })
-    }).then(data => {
-        functionMeta.functionRole = data.Role
-        return simplify.uploadDirectoryAsZip({
-            adaptor: provider.getStorage(),
-            ...{
-                bucketKey: config.Bucket.Key,
-                inputDirectory: path.resolve(functionName ? functionName : '', sourceDir || 'src'),
-                outputFilePath: path.resolve(functionName ? functionName : '', 'dist'),
-                hashInfo: { FileSha256: forceUpdate ? 'INVALID' : functionMeta.lashHash256 }
-            }
-        })
-    }).then(uploadInfor => {
-        functionMeta.uploadInfor = uploadInfor
-        config.Function.Role = functionMeta.functionRole.Arn
-        if (!uploadInfor.isHashIdentical) {
-            return asFunctionLayer ? simplify.createFunctionLayerVersion({
-                adaptor: provider.getFunction(),
+    return new Promise(function (resolve) {
+        provider.setConfig(config).then(_ => {
+            const roleName = `${config.Function.FunctionName}Role`
+            return simplify.createOrUpdateFunctionRole({
+                adaptor: provider.getIAM(),
+                roleName: roleName,
+                policyDocument: policyDocument,
+                assumeRoleDocument: JSON.stringify(assumeRoleDocument)
+            })
+        }).then(data => {
+            functionMeta.functionRole = data.Role
+            return simplify.uploadDirectoryAsZip({
+                adaptor: provider.getStorage(),
                 ...{
-                    layerConfig: {
-                        "CompatibleRuntimes": [config.Function.Runtime],
-                        "LayerName": config.Function.FunctionName
-                    },
-                    functionConfig: config.Function,
-                    bucketName: config.Bucket.Name,
-                    bucketKey: uploadInfor.Key
-                }
-            }) : simplify.createOrUpdateFunction({
-                adaptor: provider.getFunction(),
-                ...{
-                    functionConfig: config.Function,
-                    bucketName: config.Bucket.Name,
-                    bucketKey: uploadInfor.Key
+                    bucketKey: config.Bucket.Key,
+                    inputDirectory: path.resolve(functionName ? functionName : '', sourceDir || 'src'),
+                    outputFilePath: path.resolve(functionName ? functionName : '', 'dist'),
+                    hashInfo: { FileSha256: forceUpdate ? 'INVALID' : functionMeta.lashHash256 }
                 }
             })
-        } else {
-            return Promise.resolve({ ...config.Function })
-        }
-    }).then(function (data) {
-        const writeStackOutput = function (config, data) {
-            let outputData = {}
-            const functionRegion = data.FunctionArn.split(':')[3]
-            outputData[functionName || process.env.FUNCTION_NAME] = {
-                LastUpdate: Date.now(),
-                Region: functionRegion,
-                FunctionName: config.Function.FunctionName,
-                FunctionArn: data.FunctionArn,
-                Type: "Function"
+        }).then(uploadInfor => {
+            functionMeta.uploadInfor = uploadInfor
+            config.Function.Role = functionMeta.functionRole.Arn
+            if (!uploadInfor.isHashIdentical) {
+                return asFunctionLayer ? simplify.createFunctionLayerVersion({
+                    adaptor: provider.getFunction(),
+                    ...{
+                        layerConfig: {
+                            "CompatibleRuntimes": [config.Function.Runtime],
+                            "LayerName": config.Function.FunctionName
+                        },
+                        functionConfig: config.Function,
+                        bucketName: config.Bucket.Name,
+                        bucketKey: uploadInfor.Key
+                    }
+                }) : simplify.createOrUpdateFunction({
+                    adaptor: provider.getFunction(),
+                    ...{
+                        functionConfig: config.Function,
+                        bucketName: config.Bucket.Name,
+                        bucketKey: uploadInfor.Key
+                    }
+                })
+            } else {
+                return Promise.resolve({ ...config.Function })
             }
-            if (fs.existsSync(stackConfigFile)) {
-                outputData = { ...JSON.parse(fs.readFileSync(stackConfigFile)), ...outputData }
+        }).then(function (data) {
+            const writeStackOutput = function (config, data) {
+                let outputData = {}
+                const functionRegion = data.FunctionArn.split(':')[3]
+                outputData[functionName || process.env.FUNCTION_NAME] = {
+                    LastUpdate: Date.now(),
+                    Region: functionRegion,
+                    FunctionName: config.Function.FunctionName,
+                    FunctionArn: data.FunctionArn,
+                    Type: "Function"
+                }
+                if (fs.existsSync(stackConfigFile)) {
+                    outputData = { ...JSON.parse(fs.readFileSync(stackConfigFile)), ...outputData }
+                }
+                const pathDirName = path.dirname(path.resolve(stackConfigFile))
+                if (!fs.existsSync(pathDirName)) {
+                    fs.mkdirSync(pathDirName, { recursive: true })
+                }
+                fs.writeFileSync(stackConfigFile, JSON.stringify(outputData, null, 4))
             }
-            const pathDirName = path.dirname(path.resolve(stackConfigFile))
-            if (!fs.existsSync(pathDirName)) {
-                fs.mkdirSync(pathDirName, { recursive: true })
-            }
-            fs.writeFileSync(stackConfigFile, JSON.stringify(outputData, null, 4))
-        }
-        if (asFunctionLayer) {
-            try {
-                let configInput = JSON.parse(fs.readFileSync(path.resolve(configFile || 'config.json')))
-                configInput.Function.Layers = data.Layers
-                fs.writeFileSync(path.resolve(configFile || 'config.json'), JSON.stringify(configInput, null, 4))
-            } catch (error) {
-                simplify.finishWithErrors(`${opName}-DeployLayer`, getErrorMessage(error));
-            }
-        } else {
-            if (data && data.FunctionArn) {
-                functionMeta = { ...functionMeta, data }
-                if (publishNewVersion) {
-                    simplify.publishFunctionVersion({
-                        adaptor: provider.getFunction(),
-                        ...{
-                            functionConfig: config.Function,
-                            functionMeta: functionMeta
-                        }
-                    }).then(functionVersion => {
-                        writeStackOutput(config, functionVersion)
-                        functionMeta.data = functionVersion /** update versioned metadata */
-                        fs.writeFileSync(outputFunctionFilePath, JSON.stringify(functionMeta, null, 4))
-                        fs.writeFileSync(hashFunctionFilePath, functionMeta.uploadInfor.FileSha256)
-                        simplify.consoleWithMessage(`${opName}-PublishFunction`, `Done: ${functionVersion.FunctionArn}`)
-                    }).catch(err => simplify.finishWithErrors(`${opName}-PublishFunction-ERROR`, err))
-                } else {
-                    writeStackOutput(config, data)
-                    fs.writeFileSync(outputFunctionFilePath, JSON.stringify(functionMeta, null, 4))
-                    fs.writeFileSync(hashFunctionFilePath, functionMeta.uploadInfor.FileSha256)
-                    simplify.consoleWithMessage(`${opName}-DeployFunction`, `Done: ${data.FunctionArn}`)
+            if (asFunctionLayer) {
+                try {
+                    let configInput = JSON.parse(fs.readFileSync(path.resolve(configFile || 'config.json')))
+                    configInput.Function.Layers = data.Layers
+                    fs.writeFileSync(path.resolve(configFile || 'config.json'), JSON.stringify(configInput, null, 4))
+                    resolve()
+                } catch (error) {
+                    simplify.finishWithErrors(`${opName}-DeployLayer`, getErrorMessage(error)) && resolve()
                 }
             } else {
-                simplify.consoleWithMessage(`${opName}-DeployFunction`, `Done: Your code is up to date!`)
+                if (data && data.FunctionArn) {
+                    functionMeta = { ...functionMeta, data }
+                    if (publishNewVersion) {
+                        simplify.publishFunctionVersion({
+                            adaptor: provider.getFunction(),
+                            ...{
+                                functionConfig: config.Function,
+                                functionMeta: functionMeta
+                            }
+                        }).then(functionVersion => {
+                            writeStackOutput(config, functionVersion)
+                            functionMeta.data = functionVersion /** update versioned metadata */
+                            fs.writeFileSync(outputFunctionFilePath, JSON.stringify(functionMeta, null, 4))
+                            fs.writeFileSync(hashFunctionFilePath, functionMeta.uploadInfor.FileSha256)
+                            simplify.consoleWithMessage(`${opName}-PublishFunction`, `Done: ${functionVersion.FunctionArn}`)
+                            resolve()
+                        }).catch(err => simplify.finishWithErrors(`${opName}-PublishFunction-ERROR`, err) && resolve())
+                    } else {
+                        writeStackOutput(config, data)
+                        fs.writeFileSync(outputFunctionFilePath, JSON.stringify(functionMeta, null, 4))
+                        fs.writeFileSync(hashFunctionFilePath, functionMeta.uploadInfor.FileSha256)
+                        simplify.consoleWithMessage(`${opName}-DeployFunction`, `Done: ${data.FunctionArn}`)
+                        resolve()
+                    }
+                } else {
+                    simplify.consoleWithMessage(`${opName}-DeployFunction`, `Done: Your code is up to date!`) && resolve()
+                }
             }
-        }
-    }).catch(error => simplify.finishWithErrors(`${opName}-UploadFunction-ERROR`, getErrorMessage(error))).catch(error => {
-        simplify.consoleWithErrors(`${opName}-DeployFunction-ERROR`, getErrorMessage(error))
-        throw error
+        }).catch(error => simplify.finishWithErrors(`${opName}-UploadFunction-ERROR`, getErrorMessage(error))).catch(error => {
+            simplify.consoleWithErrors(`${opName}-DeployFunction-ERROR`, getErrorMessage(error)) && resolve()
+        })
     })
 }
 
@@ -447,85 +457,100 @@ const destroyFunction = function (options) {
     const outputFunctionFilePath = path.resolve(config.OutputFolder, `${envName || process.env.DEPLOYMENT_ENV}`, `${functionName || process.env.FUNCTION_NAME}.json`)
     const hashFunctionFilePath = path.resolve(config.OutputFolder, `${envName || process.env.DEPLOYMENT_ENV}`, `${functionName || process.env.FUNCTION_NAME}.hash`)
     const stackList = fs.existsSync(stackConfigFile) ? JSON.parse(fs.readFileSync(stackConfigFile)) : {}
-    return provider.setConfig(config).then(_ => {
-        const roleName = `${config.Function.FunctionName}Role`
-        return simplify.deleteFunctionRole({
-            adaptor: provider.getIAM(),
-            roleName: roleName
-        })
-    }).then(_ => {
-        return simplify.deleteFunction({
-            adaptor: provider.getFunction(),
-            functionConfig: config.Function,
-            withLayerVersions: withFunctionLayer || false
+    return new Promise(function (resolve) {
+        provider.setConfig(config).then(_ => {
+            const roleName = `${config.Function.FunctionName}Role`
+            return simplify.deleteFunctionRole({
+                adaptor: provider.getIAM(),
+                roleName: roleName
+            })
+        }).then(_ => {
+            return simplify.deleteFunction({
+                adaptor: provider.getFunction(),
+                functionConfig: config.Function,
+                withLayerVersions: withFunctionLayer || false
+            }).then(data => {
+                delete stackList[functionName || process.env.FUNCTION_NAME]
+                fs.writeFileSync(stackConfigFile, JSON.stringify(stackList, null, 4))
+                let configInput = JSON.parse(fs.readFileSync(path.resolve(functionName ? functionName : '', configFile || 'config.json')))
+                configInput.Function.Layers = []
+                fs.writeFileSync(path.resolve(functionName ? functionName : '', configFile || 'config.json'), JSON.stringify(configInput, null, 4))
+                fs.unlinkSync(hashFunctionFilePath)
+                fs.unlinkSync(outputFunctionFilePath)
+                simplify.consoleWithMessage(`${opName}-DestroyFunction`, `Done. ${data.FunctionName}`)
+            })
         }).then(data => {
-            delete stackList[functionName || process.env.FUNCTION_NAME]
-            fs.writeFileSync(stackConfigFile, JSON.stringify(stackList, null, 4))
-            let configInput = JSON.parse(fs.readFileSync(path.resolve(functionName ? functionName : '', configFile || 'config.json')))
-            configInput.Function.Layers = []
-            fs.writeFileSync(path.resolve(functionName ? functionName : '', configFile || 'config.json'), JSON.stringify(configInput, null, 4))
-            fs.unlinkSync(hashFunctionFilePath)
-            fs.unlinkSync(outputFunctionFilePath)
-            simplify.consoleWithMessage(`${opName}-DestroyFunction`, `Done. ${data.FunctionName}`)
-        })
-    }).then(data => {
-        return simplify.deleteDeploymentBucket({ adaptor: provider.getStorage(), bucketName: config.Bucket.Name }).then(function () {
-            simplify.consoleWithMessage(`${opName}-DestroyBucket`, `Done. ${config.Bucket.Name}`)
-        })
-    }).catch(error => simplify.consoleWithMessage(`${opName}-DestroyFunction-ERROR`, getErrorMessage(error)))
+            return simplify.deleteDeploymentBucket({ adaptor: provider.getStorage(), bucketName: config.Bucket.Name }).then(function () {
+                simplify.consoleWithMessage(`${opName}-DestroyBucket`, `Done. ${config.Bucket.Name}`)
+                resolve()
+            })
+        }).catch(error => simplify.consoleWithMessage(`${opName}-DestroyFunction-ERROR`, getErrorMessage(error)) && resolve())
+    })
 }
 
 const createStackOnInit = function (stackNameOrURL, locationFolder, envArgs) {
     const writeTemplateOutput = (templateFolderName, projectLocation) => {
         const inputDirectory = path.join(__dirname, ...templateFolderName.split('/'), typeof stackNameOrURL === 'string' ? stackNameOrURL : '')
         if (fs.existsSync(inputDirectory)) {
-            utilities.getFilesInDirectory(inputDirectory).then(function (files) {
-                files.forEach(function (filePath) {
-                    var outputFileName = filePath.replace(inputDirectory, `${projectLocation}`).replace(/^projects\//, '').replace(/^\/+/, '').replace(/^\\+/, '')
-                    fs.readFile(filePath, function (err, data) {
-                        if (err) reject(err)
-                        else {
-                            const pathDirName = path.dirname(path.resolve(locationFolder, outputFileName))
-                            if (!fs.existsSync(pathDirName)) {
-                                fs.mkdirSync(pathDirName, { recursive: true })
+            return new Promise(function (resolve) {
+                utilities.getFilesInDirectory(inputDirectory).then(function (files) {
+                    files.forEach(function (filePath) {
+                        var outputFileName = filePath.replace(inputDirectory, `${projectLocation}`).replace(/^projects\//, '').replace(/^\/+/, '').replace(/^\\+/, '')
+                        fs.readFile(filePath, function (err, data) {
+                            if (err) reject(err)
+                            else {
+                                const pathDirName = path.dirname(path.resolve(locationFolder, outputFileName))
+                                if (!fs.existsSync(pathDirName)) {
+                                    fs.mkdirSync(pathDirName, { recursive: true })
+                                }
+                                let dataReadBuffer = fs.readFileSync(filePath).toString('utf8')
+                                if (outputFileName.endsWith('dotenv') || outputFileName.endsWith('package.json')) {
+                                    const parserArgs = typeof stackNameOrURL === 'object' ? stackNameOrURL : envArgs || {}
+                                    Object.keys(parserArgs).map(k => {
+                                        const regExVar = new RegExp(`##${k}##`, 'g')
+                                        dataReadBuffer = dataReadBuffer.replace(regExVar, parserArgs[k])
+                                    })
+                                }
+                                fs.writeFileSync(path.resolve(locationFolder, outputFileName.replace('dotenv', '.env')), dataReadBuffer)
                             }
-                            let dataReadBuffer = fs.readFileSync(filePath).toString('utf8')
-                            if (outputFileName.endsWith('dotenv') || outputFileName.endsWith('package.json')) {
-                                const parserArgs = typeof stackNameOrURL === 'object' ? stackNameOrURL : envArgs || {}
-                                Object.keys(parserArgs).map(k => {
-                                    const regExVar = new RegExp(`##${k}##`, 'g')
-                                    dataReadBuffer = dataReadBuffer.replace(regExVar, parserArgs[k])
-                                })
-                            }
-                            fs.writeFileSync(path.resolve(locationFolder, outputFileName.replace('dotenv', '.env')), dataReadBuffer)
-                        }
+                        })
                     })
-                })
-            }).catch(err => console.log("ERRR:", err))
+                    resolve()
+                }).catch(err => console.log("ERRR:", err))
+            })
         } else {
-            return false
+            return Promise.resolve()
         }
     }
     if (typeof stackNameOrURL === 'string') {
         if (stackNameOrURL.startsWith("https://")) {
-            fetch(stackNameOrURL.replace("https://github.com/", "https://raw.githubusercontent.com/").replace("/blob/", "/")).then(response => response.text()).then(templateYAML => {
-                const partialUris = stackNameOrURL.split('/').slice(-2)
-                const projectLocation = partialUris.length > 1 ? partialUris[0] : argv.name || '.'
-                var outputFileName = (`${projectLocation}/template.yaml`).replace(/^\/+/, '').replace(/^\\+/, '')
-                const pathDirName = path.dirname(path.resolve(outputFileName))
-                if (!fs.existsSync(pathDirName)) {
-                    fs.mkdirSync(pathDirName, { recursive: true })
-                }
-                fs.writeFileSync(path.resolve(outputFileName), templateYAML)
-                console.log(`\n * The ${projectLocation} stack has created successfully. Try simplify-cli deploy ${projectLocation}\n`)
-            }).catch(error => simplify.finishWithErrors(`${opName}-DownloadTemplate-ERROR`, getErrorMessage(error)))
+            return new Promise(function (resolve) {
+                fetch(stackNameOrURL.replace("https://github.com/", "https://raw.githubusercontent.com/").replace("/blob/", "/")).then(response => response.text()).then(templateYAML => {
+                    const partialUris = stackNameOrURL.split('/').slice(-2)
+                    const projectLocation = partialUris.length > 1 ? partialUris[0] : argv.name || '.'
+                    var outputFileName = (`${projectLocation}/template.yaml`).replace(/^\/+/, '').replace(/^\\+/, '')
+                    const pathDirName = path.dirname(path.resolve(outputFileName))
+                    if (!fs.existsSync(pathDirName)) {
+                        fs.mkdirSync(pathDirName, { recursive: true })
+                    }
+                    fs.writeFileSync(path.resolve(outputFileName), templateYAML)
+                    console.log(`\n * The ${projectLocation} stack has created successfully. Try simplify-cli deploy ${projectLocation}\n`)
+                    resolve()
+                }).catch(error => simplify.finishWithErrors(`${opName}-DownloadTemplate-ERROR`, getErrorMessage(error)) && resolve())
+            })
         } else {
-            writeTemplateOutput("basic/functions", argv.name || stackNameOrURL)
-            writeTemplateOutput("basic/stacks", argv.name || stackNameOrURL)
-            console.log(`\n - The ${CGREEN}${argv.name || stackNameOrURL}${CRESET} stack has created successfully. Try simplify-cli deploy ${argv.name || stackNameOrURL}\n`)
+            return new Promise(function (resolve) {
+                Promiss.all([
+                    writeTemplateOutput("basic/functions", argv.name || stackNameOrURL),
+                    writeTemplateOutput("basic/stacks", argv.name || stackNameOrURL)
+                ]).then(() => {
+                    console.log(`\n - The ${CGREEN}${argv.name || stackNameOrURL}${CRESET} stack has created successfully. Try simplify-cli deploy ${argv.name || stackNameOrURL}\n`)
+                    resolve()
+                }).catch(() => resolve())
+            })
         }
     } else {
-        writeTemplateOutput("basic/projects", "")
+        return writeTemplateOutput("basic/projects", "")
     }
 }
 
@@ -557,7 +582,7 @@ const printListingDialog = function (options, prompt) {
     } else {
         console.log(`\n - Listing installed components for ${CNOTIF}${envName || process.env.DEPLOYMENT_ENV}${CDONE} environment: (empty) \n`)
     }
-    return tableData
+    return Promise.resolve(tableData)
 }
 
 const getDirectories = source =>
@@ -677,12 +702,13 @@ const showSubscriptionPlan = function (userSession) {
     console.log(`\n`, ` * ${CPROMPT}Welcome back${CRESET} : ${userSession.getIdToken().payload[`name`]}`)
     console.log(`  * ${CPROMPT}Subscription${CRESET} : ${CDONE}${currentSubscription}${CRESET} Plan (${currentVersion} Version)`)
     console.log(`  * ${CPROMPT}Upgrade plan${CRESET} : simplify-cli upgrade`)
+    return Promise.resolve()
 }
 
 const processCLI = function (cmdRun, session) {
     if (cmdRun === "DEPLOY") {
         if (cmdArg !== undefined) {
-            (cmdType === "Function" ? deployFunction : deployStack)({
+            return (cmdType === "Function" ? deployFunction : deployStack)({
                 regionName: argv.region,
                 functionName: cmdArg,
                 configFile: argv.config,
@@ -699,7 +725,7 @@ const processCLI = function (cmdRun, session) {
                 publishNewVersion: argv.publish
             })
         } else {
-            showAvailableStacks({
+            return showAvailableStacks({
                 regionName: argv.region,
                 configFile: argv.config,
                 envName: argv.env,
@@ -709,7 +735,7 @@ const processCLI = function (cmdRun, session) {
 
     } else if (cmdRun === "DESTROY") {
         if (cmdArg !== undefined) {
-            (cmdType === "Function" ? destroyFunction({
+            return (cmdType === "Function" ? destroyFunction({
                 regionName: argv.region,
                 configFile: argv.config,
                 envName: argv.env,
@@ -725,7 +751,7 @@ const processCLI = function (cmdRun, session) {
                 configStackName: cmdArg
             })
         } else {
-            printListingDialog({
+            return printListingDialog({
                 regionName: argv.region,
                 configFile: argv.config,
                 envName: argv.env,
@@ -735,12 +761,16 @@ const processCLI = function (cmdRun, session) {
     } else if (cmdRun === "LOGOUT") {
         userSignOut(session.getIdToken().payload['cognito:username'])
         console.log(`\n * Signed out, Your session has been wiped successfully. \n`)
+        return Promise.resolve()
     } else if (cmdRun === "LOGIN") {
         const username = readlineSync.questionEMail(` - ${CPROMPT}Your identity${CRESET} : `, { limitMessage: " * Your login email is invalid." })
         const password = readlineSync.question(` - ${CPROMPT}Your password${CRESET} : `, { hideEchoBack: true })
-        authenticate(username, password).then(function (userSession) {
-            showSubscriptionPlan(userSession)
-        }).catch(error => console.error(error))
+        return new Promise(function (resolve) {
+            authenticate(username, password).then(function (userSession) {
+                showSubscriptionPlan(userSession)
+                resolve()
+            }).catch(error => console.error(error) && resolve())
+        })
     } else if (cmdRun === "UPGRADE") {
         const subscriptionPlan = readlineSync.keyInSelect([
             `BASIC - ${PLAN_DEFINITIONS["BASIC"].Description}.`,
@@ -752,6 +782,7 @@ const processCLI = function (cmdRun, session) {
             console.log(`\n * You have selected to pay ${PLAN_DEFINITIONS[newSubscription].Subscription}$ for ${newSubscription} version!`)
             console.log(` * Unfortunately, this feature is not available at the moment. \n`)
         }
+        return Promise.resolve()
     } else if (cmdRun === "REGISTER") {
         const fullname = readlineSync.question(` - ${CPROMPT}What is your name${CRESET} : `, { limitMessage: " * Your name is invalid." })
         const username = readlineSync.questionEMail(` - ${CPROMPT}Registered email${CRESET} : `, { limitMessage: " * Your registered email is invalid." })
@@ -780,7 +811,7 @@ const processCLI = function (cmdRun, session) {
             }).catch(error => console.error(error))
         }).catch(error => console.error(error))
     } else if (cmdRun === "LIST") {
-        printListingDialog({
+        return printListingDialog({
             regionName: argv.region,
             configFile: argv.config,
             envName: argv.env,
@@ -885,7 +916,6 @@ const processCLI = function (cmdRun, session) {
                 simplify.consoleWithMessage(opName, "Checking Installed Profiles...")
                 exec('aws configure list-profiles', (err, stdout, stderr) => {
                     if (err) {
-                        console.log(err)
                         simplify.consoleWithErrors(`${opName}-INIT`, `${err}`)
                     } else {
                         const profileItems = stdout.split('\n').filter(x => x)
@@ -911,6 +941,7 @@ const processCLI = function (cmdRun, session) {
                 });
             }
         })
+        return Promise.resolve()
     } else if (cmdRun === "CREATE") {
         const templateName = argv.template || optCMD
         if (typeof templateName === "undefined") {
@@ -918,12 +949,22 @@ const processCLI = function (cmdRun, session) {
             showTemplates("basic/functions", `\nCreate a function template: simplify-cli create [--template=]ShowLog | Detector\n`)
             showTemplates("basic/stacks", `\nOr create a deployment stack: simplify-cli create [--template=]CloudFront | CognitoUser...\n`)
             console.log(`\n *`, `Or fetch from YAML: simplify-cli create [--template=]https://github.com/awslabs/...template.yml \n`)
+            return Promise.resolve()
         } else {
-            createStackOnInit(templateName, argv.location, process.env)
+            return createStackOnInit(templateName, argv.location, process.env)
         }
     } else {
         console.log(`\n * Command ${cmdRun} is not supported. Try with these commands: create | list | login | deploy | destroy \n`)
+        return Promise.resolve()
     }
+}
+
+const detectNewVersion = function () {
+    fetch('https://raw.githubusercontent.com/simplify-framework/cli/master/package.json').then(response => response.json()).then(json => {
+        if (json.version !== require('./package').version) {
+            console.log(`\n * New version ${json.version} is detected! npm install -g simplify-cli\n`)
+        }
+    })
 }
 
 if (ALLOWED_COMANDS.indexOf(cmdOPS) == -1) {
@@ -933,8 +974,13 @@ if (ALLOWED_COMANDS.indexOf(cmdOPS) == -1) {
     } else {
         getCurrentSession().then(session => {
             if (session && session.isValid()) {
+                const username = session.getIdToken().payload['cognito:username']
+                analytics.updateEndpoint(username)
                 showSubscriptionPlan(session)
-                processCLI(cmdOPS, session)
+                processCLI(cmdOPS, session).then(() => {
+                    analytics.updateEvent("__cmd.run", { "name": cmdOPS, "opt": optCMD }, username, cmdOPS == "DEPLOY")
+                    detectNewVersion()
+                })
             } else {
                 console.log(`${CPROMPT}Session is invalid${CRESET}. Please re-login.`)
                 console.log(`\n *`, `Login: \tsimplify-cli login`)
@@ -951,13 +997,19 @@ if (ALLOWED_COMANDS.indexOf(cmdOPS) == -1) {
         if (configInfo.hasOwnProperty('Profile') && configInfo.hasOwnProperty('Region') && configInfo.hasOwnProperty('Bucket')) {
             console.log(`\n`, ` * ${CPROMPT}Opensource Support${CRESET} : Community (FREE)`)
             console.log(`  * ${CPROMPT}Enterprise Support${CRESET} : simplify-cli register`)
-            processCLI(cmdOPS)
+            processCLI(cmdOPS).then(() => {
+                analytics.updateEvent("__cmd.run", { "name": cmdOPS, "opt": optCMD }, undefined, cmdOPS == "DEPLOY")
+                detectNewVersion()
+            })
         } else {
             console.log(`\n`, `- ${CPROMPT}This is not a valid environment${CRESET}. The ${argv.config || 'config.json'} is incorrect.`)
             console.log(`\n`, `*`, `Create environment: \tsimplify-cli init`, `\n`)
         }
     } else {
-        processCLI("INIT")
+        processCLI("INIT").then(() => {
+            analytics.updateEndpoint()
+            detectNewVersion()
+        })
     }
 }
 
