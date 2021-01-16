@@ -540,7 +540,7 @@ const createStackOnInit = function (stackNameOrURL, locationFolder, envArgs) {
             })
         } else {
             return new Promise(function (resolve) {
-                Promiss.all([
+                Promise.all([
                     writeTemplateOutput("basic/functions", argv.name || stackNameOrURL),
                     writeTemplateOutput("basic/stacks", argv.name || stackNameOrURL)
                 ]).then(() => {

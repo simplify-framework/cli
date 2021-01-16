@@ -1,6 +1,6 @@
 {
   "name": "simplify-cli",
-  "version": "0.1.27",
+  "version": "0.1.28",
   "description": "Simplify CLI - Easy Deployment",
   "main": "cli.js",
   "bin": {
