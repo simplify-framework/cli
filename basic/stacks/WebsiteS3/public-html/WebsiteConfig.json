@@ -1,0 +1,6 @@
+{
+    "IdentityPoolId": "ap-southeast-1:xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxx",
+    "UserPoolId": "ap-southeast-1_XXXXXXXXX",
+    "WebClientId": "xxxxxxxxxxxxxxxxxxxxxxx",
+    "Region": "ap-southeast-1"
+}
