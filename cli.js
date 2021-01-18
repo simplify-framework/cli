@@ -403,9 +403,9 @@ const deployFunction = function (options) {
             }
             if (asFunctionLayer) {
                 try {
-                    let configInput = JSON.parse(fs.readFileSync(path.resolve(configFile || 'config.json')))
+                    let configInput = JSON.parse(fs.readFileSync(path.resolve(functionName ? functionName : '', configFile || 'config.json')))
                     configInput.Function.Layers = data.Layers
-                    fs.writeFileSync(path.resolve(configFile || 'config.json'), JSON.stringify(configInput, null, 4))
+                    fs.writeFileSync(path.resolve(functionName ? functionName : '', configFile || 'config.json'), JSON.stringify(configInput, null, 4))
                     resolve()
                 } catch (error) {
                     simplify.finishWithErrors(`${opName}-DeployLayer`, getErrorMessage(error)) && resolve()
