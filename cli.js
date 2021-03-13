@@ -742,14 +742,14 @@ const processCLI = function (cmdRun, session) {
                 envFile: argv['dotenv'],
                 functionName: cmdArg,
                 withFunctionLayer: argv.layer
-            }) : destroyStack)({
+            }) : destroyStack({
                 regionName: argv.region,
                 configFile: argv.config,
                 envName: argv.env,
                 envFile: argv['dotenv'],
                 configStackFolder: argv.location,
                 configStackName: cmdArg
-            })
+            }))
         } else {
             return printListingDialog({
                 regionName: argv.region,
