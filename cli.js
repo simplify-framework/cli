@@ -824,7 +824,7 @@ const processCLI = function (cmdRun, session) {
         }, `Deployed ${CPROMPT}stacks${CRESET} and ${CPROMPT}functions${CRESET} managed by Simplify CLI:`)
     } else if (cmdRun === "INIT") {
         function verifyAccountAccess(options, callback, errorHandler) {
-            const S3_OPTIONS = (options.DEPLOYMENT_REGION !== 'us-west-1' ? `--create-bucket-configuration LocationConstraint=${options.DEPLOYMENT_REGION} ` : '') + `--profile ${options.DEPLOYMENT_PROFILE} --region ${options.DEPLOYMENT_REGION}`
+            const S3_OPTIONS = (options.DEPLOYMENT_REGION !== 'us-east-1' ? `--create-bucket-configuration LocationConstraint=${options.DEPLOYMENT_REGION} ` : '') + `--profile ${options.DEPLOYMENT_PROFILE} --region ${options.DEPLOYMENT_REGION}`
             exec(`aws s3api create-bucket --bucket ${options.DEPLOYMENT_BUCKET}-${options.DEPLOYMENT_REGION} ${S3_OPTIONS}`, (err, stdout, stderr) => {
                 if (!err) {
                     if (stderr) {
