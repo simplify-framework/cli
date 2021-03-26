@@ -675,6 +675,8 @@ var cmdOPS = (argv._[0] || 'list').toUpperCase()
 var optCMD = (argv._.length > 1 ? argv._[1] : undefined)
 var cmdArg = argv['stack'] || argv['function'] || optCMD
 var cmdType = cmdArg ? fs.existsSync(path.resolve(argv.location, cmdArg, "template.yaml")) ? "CF-Stack" : "Function" : undefined
+cmdType = argv['function'] ? "Function" : argv['stack'] ? "CF-Stack" : cmdType
+
 if (argv._.length == 0) {
     yargs.showHelp()
     console.log(`\n`, ` * ${CBRIGHT}Supported command list${CRESET}:`, '\n')
