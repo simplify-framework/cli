@@ -61,7 +61,7 @@ const getErrorMessage = function (error) {
 }
 
 const deployStack = function (options) {
-    const { configFile, envFile, dataFile, envName, configStackFolder, configStackName, regionName } = options
+    const { configFile, envFile, dataFile, envName, configStackFolder, configStackName, regionName, headless } = options
     const envFilePath = path.resolve(envFile || '.env')
     if (fs.existsSync(envFilePath)) {
         require('dotenv').config({ path: envFilePath })
@@ -174,7 +174,7 @@ const deployStack = function (options) {
                     let redoParamIndex = -1
                     do {
                         const reviewOptions = Object.keys(resultParameters).map(x => `${x} = ${resultParameters[x] || '(not set)'}`)
-                        redoParamIndex = readlineSync.keyInSelect(reviewOptions, `Do you want to change any of those parameters?`, { cancel: `${CBRIGHT}Continue to deploy${CRESET} - (No change)` })
+                        redoParamIndex = headless ? -1 : readlineSync.keyInSelect(reviewOptions, `Do you want to change any of those parameters?`, { cancel: `${CBRIGHT}Continue to deploy${CRESET} - (No change)` })
                         if (redoParamIndex !== -1) {
                             selectParameter(Object.keys(resultParameters)[redoParamIndex], docYaml, resultParameters, stackParamteres)
                         }
@@ -669,6 +669,7 @@ var argv = require('yargs').usage('simplify-cli command [options]')
     .boolean('update').describe('update', getOptionDesc('deploy', 'update')).default('update', false)
     .boolean('publish').describe('publish', getOptionDesc('deploy', 'publish')).default('publish', false)
     .boolean('layer').describe('layer', getOptionDesc('deploy', 'layer')).default('layer', false)
+    .boolean('headless').describe('headless', getOptionDesc('deploy', 'headless')).default('headless', false)
     .demandCommand(0).argv;
 
 var cmdOPS = (argv._[0] || 'list').toUpperCase()
@@ -724,7 +725,8 @@ const processCLI = function (cmdRun, session) {
                 sourceDir: argv.source,
                 forceUpdate: argv.update,
                 asFunctionLayer: argv.layer,
-                publishNewVersion: argv.publish
+                publishNewVersion: argv.publish,
+                headless: argv.headless
             })
         } else {
             return showAvailableStacks({
