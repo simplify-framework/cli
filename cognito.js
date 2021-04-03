@@ -57,29 +57,33 @@ const confirmRegistration = function (username, code) {
 }
 
 const getCurrentSession = function () {
-    var cognitoUser = userPool.getCurrentUser();
-    if (cognitoUser != null) {
-        return new Promise(function (resolve, reject) {
-            cognitoUser.getSession(function (err, session) {
-                if (err) {
-                    reject(err.message || JSON.stringify(err));
-                } else {
-                    if (session.isValid()) {
-                        resolve(session)
+    if (process.env.ENABLE_TRACKING_DATA_FOR_ANALYTICS) {
+        var cognitoUser = userPool.getCurrentUser();
+        if (cognitoUser != null) {
+            return new Promise(function (resolve, reject) {
+                cognitoUser.getSession(function (err, session) {
+                    if (err) {
+                        reject(err.message || JSON.stringify(err));
                     } else {
-                        cognitoUser.refreshSession(session.getRefreshToken(), (err, session) => {
-                            if (err) {
-                                reject(err.message || JSON.stringify(err));
-                            } else {
-                                resolve(session)
-                            }
-                        })
+                        if (session.isValid()) {
+                            resolve(session)
+                        } else {
+                            cognitoUser.refreshSession(session.getRefreshToken(), (err, session) => {
+                                if (err) {
+                                    reject(err.message || JSON.stringify(err));
+                                } else {
+                                    resolve(session)
+                                }
+                            })
+                        }
                     }
-                }
-            });
-        })
+                });
+            })
+        } else {
+            return Promise.reject(`Session is not found`)
+        }
     } else {
-        return Promise.reject(`Session is not found`)
+        return Promise.resolve()
     }
 }
 
@@ -109,7 +113,7 @@ const authenticate = function (email, password) {
     })
 }
 
-const userSignOut = function(username) {
+const userSignOut = function (username) {
     var cognitoUser = new AmazonCognitoIdentity.CognitoUser({
         Username: username,
         Pool: userPool,

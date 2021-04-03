@@ -987,8 +987,15 @@ if (ALLOWED_COMANDS.indexOf(cmdOPS) == -1) {
                     detectNewVersion()
                 })
             } else {
-                console.log(`${CPROMPT}Session is invalid${CRESET}. Please re-login.`)
-                console.log(`\n *`, `Login: \tsimplify-cli login`)
+                if (process.env.ENABLE_TRACKING_DATA_FOR_ANALYTICS) {
+                    console.log(`${CPROMPT}Session is invalid${CRESET}. Please re-login.`)
+                    console.log(`\n *`, `Login: \tsimplify-cli login`)
+                } else {
+                    processCLI(cmdOPS, session).then(() => {
+                        analytics.updateEvent("__cmd.run", { "name": cmdOPS, "opt": optCMD }, username, cmdOPS == "DEPLOY")
+                        detectNewVersion()
+                    })
+                }
             }
         }).catch(error => {
             console.log(`${CPROMPT}${error}${CRESET}. Please login or register an account.`)

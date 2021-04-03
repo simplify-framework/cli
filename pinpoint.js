@@ -56,68 +56,72 @@ const getOSInfos = function() {
 
 const updateEndpoint = function (userId) {
     return new Promise(function(resolve, reject) {
-        let endpointId = ApplicationStorage.getItem(`AWS.Pinpoint.EndpointId`)
-        function updateEndpointWithAttributes(endpointAttributes) {
-            const lastRegion = AWS.config.region
-            getCognitoCredentials().then(function(creds) {
-                const lastCreds = AWS.config.credentials
-                AWS.config.update({ credentials: creds })
-                var pinpoint = new AWS.Pinpoint({
-                    apiVersion: '2016-12-01',
-                    region: COGNITO_PINPOINT_REGION
-                })                
-                pinpoint.updateEndpoint({
-                    ApplicationId: COGNITO_PINPOINT_APPID,
-                    EndpointId: endpointId,
-                    EndpointRequest: {
-                        ...endpointAttributes
-                    }
-                }, function (err, data) {
-                    AWS.config.update({ credentials: lastCreds, region: lastRegion })
-                    err ? reject(err) : resolve(data)
+        if (process.env.ENABLE_TRACKING_DATA_FOR_ANALYTICS) {
+            let endpointId = ApplicationStorage.getItem(`AWS.Pinpoint.EndpointId`)
+            function updateEndpointWithAttributes(endpointAttributes) {
+                const lastRegion = AWS.config.region
+                getCognitoCredentials().then(function(creds) {
+                    const lastCreds = AWS.config.credentials
+                    AWS.config.update({ credentials: creds })
+                    var pinpoint = new AWS.Pinpoint({
+                        apiVersion: '2016-12-01',
+                        region: COGNITO_PINPOINT_REGION
+                    })                
+                    pinpoint.updateEndpoint({
+                        ApplicationId: COGNITO_PINPOINT_APPID,
+                        EndpointId: endpointId,
+                        EndpointRequest: {
+                            ...endpointAttributes
+                        }
+                    }, function (err, data) {
+                        AWS.config.update({ credentials: lastCreds, region: lastRegion })
+                        err ? reject(err) : resolve(data)
+                    })
+                }).catch(err => {
+                    AWS.config.update({ region: lastRegion })
+                    reject(err)
                 })
-            }).catch(err => {
-                AWS.config.update({ region: lastRegion })
-                reject(err)
-            })
-        }
-        getOSInfos().then(osInfos => {
-            let endpointAttributes = {
-                Address: endpointId || v4(),
-                ChannelType: 'EMAIL',
-                OptOut: 'ALL',
-                Demographic: {
-                    AppVersion: require('./package').version,
-                    Make: osInfos.BotoCore,
-                    Platform: osInfos.Platform,
-                    PlatformVersion: osInfos.PlatformVersion,
-                    Model: osInfos.Python,
-                    ModelVersion: osInfos.PythonVersion,
-                },
-                EndpointStatus: 'ACTIVE',
-                EffectiveDate: new Date().toISOString(),
-                RequestId: v4(),
-                User: {
-                    UserAttributes: [],
-                    UserId: userId || endpointId
+            }
+            getOSInfos().then(osInfos => {
+                let endpointAttributes = {
+                    Address: endpointId || v4(),
+                    ChannelType: 'EMAIL',
+                    OptOut: 'ALL',
+                    Demographic: {
+                        AppVersion: require('./package').version,
+                        Make: osInfos.BotoCore,
+                        Platform: osInfos.Platform,
+                        PlatformVersion: osInfos.PlatformVersion,
+                        Model: osInfos.Python,
+                        ModelVersion: osInfos.PythonVersion,
+                    },
+                    EndpointStatus: 'ACTIVE',
+                    EffectiveDate: new Date().toISOString(),
+                    RequestId: v4(),
+                    User: {
+                        UserAttributes: [],
+                        UserId: userId || endpointId
+                    }
                 }
-            }
-            if (!endpointId) {
-                exec('grep docker /proc/1/cgroup -qa', (err, stdout, stderr) => {
-                    if (err || stderr) {
-                        ApplicationStorage.setItem(`AWS.Pinpoint.EndpointId`, endpointId = v4())
-                        updateEndpointWithAttributes(endpointAttributes)
-                    } else {
-                        exec('cat /proc/self/cgroup | head -n 1 | tr ‘/’ ‘\n’ | tail -1 | cut -c1-12', (err, stdout, stderr) => {
-                            ApplicationStorage.setItem(`AWS.Pinpoint.EndpointId`, endpointId = (stdout || v4()))
+                if (!endpointId) {
+                    exec('grep docker /proc/1/cgroup -qa', (err, stdout, stderr) => {
+                        if (err || stderr) {
+                            ApplicationStorage.setItem(`AWS.Pinpoint.EndpointId`, endpointId = v4())
                             updateEndpointWithAttributes(endpointAttributes)
-                        })
-                    }
-                })
-            } else {
-                updateEndpointWithAttributes(endpointAttributes)
-            }
-        }).catch(err => reject(err))
+                        } else {
+                            exec('cat /proc/self/cgroup | head -n 1 | tr ‘/’ ‘\n’ | tail -1 | cut -c1-12', (err, stdout, stderr) => {
+                                ApplicationStorage.setItem(`AWS.Pinpoint.EndpointId`, endpointId = (stdout || v4()))
+                                updateEndpointWithAttributes(endpointAttributes)
+                            })
+                        }
+                    })
+                } else {
+                    updateEndpointWithAttributes(endpointAttributes)
+                }
+            }).catch(err => reject(err))
+        } else {
+            resolve()
+        }
     })
 }
 
