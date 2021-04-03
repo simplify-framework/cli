@@ -1,6 +1,6 @@
 const path = require('path')
 const fs = require('fs')
-const FILE_STORAGE = '.storage'
+const FILE_STORAGE = process.env.LOCAL_CONFIGURATION_STORAGE || '.storage'
 if (!fs.existsSync(path.resolve(__dirname, FILE_STORAGE))) {
     fs.mkdirSync(path.resolve(__dirname, FILE_STORAGE))
 }

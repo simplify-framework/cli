@@ -2,9 +2,9 @@ var AWS = require('aws-sdk');
 const { exec } = require('child_process');
 const { v4 } = require('uuid');
 const ApplicationStorage = require('./storage')
-const COGNITO_PINPOINT_APPID = '4c6b346287ab4e86a284a88e46352738'
-const COGNITO_IDENTITY_POOL_ID = 'us-east-1:9e72cdc0-12d9-471c-ba71-a6a20e6e15ab'
-const COGNITO_PINPOINT_REGION = 'us-east-1'
+const COGNITO_PINPOINT_APPID = process.env.COGNITO_PINPOINT_APPID || '4c6b346287ab4e86a284a88e46352738'
+const COGNITO_IDENTITY_POOL_ID = process.env.COGNITO_IDENTITY_POOL_ID || 'us-east-1:9e72cdc0-12d9-471c-ba71-a6a20e6e15ab'
+const COGNITO_PINPOINT_REGION = process.env.COGNITO_PINPOINT_REGION || 'us-east-1'
 
 function getCognitoCredentials() {
     const cognitoIdentity = new AWS.CognitoIdentity({ region: COGNITO_PINPOINT_REGION });

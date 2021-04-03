@@ -5,8 +5,8 @@ const { v4 } = require('uuid');
 const ApplicationStorage = require('./storage')
 
 var poolData = {
-    UserPoolId: 'us-east-1_UAf0SxZ5c',
-    ClientId: '72nrnku0iajiqlahhvkvhqgln2',
+    UserPoolId: process.env.COGNITO_USERPOOL_ID || 'us-east-1_UAf0SxZ5c',
+    ClientId: process.env.COGNITO_CLIENT_ID || '72nrnku0iajiqlahhvkvhqgln2',
     Storage: ApplicationStorage
 };
 var userPool = process.env.ENABLE_TRACKING_DATA_FOR_ANALYTICS ? new AmazonCognitoIdentity.CognitoUserPool(poolData) : null;
