@@ -42,6 +42,7 @@ const AVAILABLE_COMMANDS = [
         { name: "region", desc: "selected region to deploy" },
         { name: "dotenv", desc: "another alternative env" },
         { name: "location", desc: "the root folder of this deployment" },
+        { name: "headless", desc: "without prompt when deploying" }
     ] },
     { name: "destroy", desc: "cleanup your cloud deployment resource", options: [
         { name: "help", desc: "display help for `destroy` command" },

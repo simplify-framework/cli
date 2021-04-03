@@ -58,6 +58,10 @@ const updateEndpoint = function (userId) {
     return new Promise(function(resolve, reject) {
         if (process.env.ENABLE_TRACKING_DATA_FOR_ANALYTICS) {
             let endpointId = ApplicationStorage.getItem(`AWS.Pinpoint.EndpointId`)
+            if (!endpointId) {
+                endpointId = v4()
+                ApplicationStorage.setItem(`AWS.Pinpoint.EndpointId`, endpointId)
+            }
             function updateEndpointWithAttributes(endpointAttributes) {
                 const lastRegion = AWS.config.region
                 getCognitoCredentials().then(function(creds) {
@@ -128,6 +132,10 @@ const updateEndpoint = function (userId) {
 const updateEvent = function (eventType, eventAttrs, userId, timeToSendBatchOut) {
     return new Promise(function(resolve, reject) {
         let endpointId = ApplicationStorage.getItem(`AWS.Pinpoint.EndpointId`)
+        if (!endpointId) {
+            endpointId = v4()
+            ApplicationStorage.setItem(`AWS.Pinpoint.EndpointId`, endpointId)
+        }
         getOSInfos().then(osInfos => {
             let endpointAttributes = {
                 Address: endpointId || v4(),
