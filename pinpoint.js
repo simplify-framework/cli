@@ -130,79 +130,83 @@ const updateEndpoint = function (userId) {
 }
 
 const updateEvent = function (eventType, eventAttrs, userId, timeToSendBatchOut) {
-    return new Promise(function(resolve, reject) {
-        let endpointId = ApplicationStorage.getItem(`AWS.Pinpoint.EndpointId`)
-        if (!endpointId) {
-            endpointId = v4()
-            ApplicationStorage.setItem(`AWS.Pinpoint.EndpointId`, endpointId)
-        }
-        getOSInfos().then(osInfos => {
-            let endpointAttributes = {
-                Address: endpointId || v4(),
-                ChannelType: 'EMAIL',
-                OptOut: 'ALL',
-                Demographic: {
-                    AppVersion: require('./package').version,
-                    Make: osInfos.BotoCore,
-                    Platform: osInfos.Platform,
-                    PlatformVersion: osInfos.PlatformVersion,
-                    Model: osInfos.Python,
-                    ModelVersion: osInfos.PythonVersion,
-                },
-                EndpointStatus: 'ACTIVE',
-                EffectiveDate: new Date().toISOString(),
-                RequestId: v4(),
-                User: {
-                    UserAttributes: [],
-                    UserId: userId || endpointId
-                }
+    if (process.env.ENABLE_TRACKING_DATA_FOR_ANALYTICS) {
+        return new Promise(function(resolve, reject) {
+            let endpointId = ApplicationStorage.getItem(`AWS.Pinpoint.EndpointId`)
+            if (!endpointId) {
+                endpointId = v4()
+                ApplicationStorage.setItem(`AWS.Pinpoint.EndpointId`, endpointId)
             }
-            const lastRegion = AWS.config.region
-            getCognitoCredentials().then(function(creds) {
-                const lastCreds = AWS.config.credentials
-                AWS.config.update({ credentials: creds })
-                let newEvent = {
-                    Endpoint: {
-                        ...endpointAttributes
+            getOSInfos().then(osInfos => {
+                let endpointAttributes = {
+                    Address: endpointId || v4(),
+                    ChannelType: 'EMAIL',
+                    OptOut: 'ALL',
+                    Demographic: {
+                        AppVersion: require('./package').version,
+                        Make: osInfos.BotoCore,
+                        Platform: osInfos.Platform,
+                        PlatformVersion: osInfos.PlatformVersion,
+                        Model: osInfos.Python,
+                        ModelVersion: osInfos.PythonVersion,
                     },
-                    Events: {}
-                }
-                newEvent.Events[`${eventType}`] = {
-                    EventType: eventType,
-                    Attributes : eventAttrs || {},
-                    Timestamp: new Date().toISOString(),
-                    Session: {
-                        Id: endpointId,
-                        StartTimestamp: new Date().toISOString()
+                    EndpointStatus: 'ACTIVE',
+                    EffectiveDate: new Date().toISOString(),
+                    RequestId: v4(),
+                    User: {
+                        UserAttributes: [],
+                        UserId: userId || endpointId
                     }
                 }
-                let params = {
-                    ApplicationId: COGNITO_PINPOINT_APPID,
-                    EventsRequest: {
-                        BatchItem: []
+                const lastRegion = AWS.config.region
+                getCognitoCredentials().then(function(creds) {
+                    const lastCreds = AWS.config.credentials
+                    AWS.config.update({ credentials: creds })
+                    let newEvent = {
+                        Endpoint: {
+                            ...endpointAttributes
+                        },
+                        Events: {}
                     }
-                }
-                params.EventsRequest.BatchItem = JSON.parse(ApplicationStorage.getItem(`AWS.Pinpoint.BatchEvents`) || "[]")
-                params.EventsRequest.BatchItem.push(newEvent)
-                if (params.EventsRequest.BatchItem.length >= 10 || timeToSendBatchOut) {
-                    var pinpoint = new AWS.Pinpoint({
-                        apiVersion: '2016-12-01',
-                        region: COGNITO_PINPOINT_REGION
-                    })
-                    pinpoint.putEvents(params, function (err, data) {
-                        ApplicationStorage.setItem(`AWS.Pinpoint.BatchEvents`, JSON.stringify([]))
-                        AWS.config.update({ credentials: lastCreds, region: lastRegion })
-                        err ? reject(err) : resolve(data)
-                    })
-                } else {
-                    ApplicationStorage.setItem(`AWS.Pinpoint.BatchEvents`, JSON.stringify(params.EventsRequest.BatchItem))
-                }
-            }).catch(err => {
-                AWS.config.update({ region: lastRegion })
-                reject(err)
-            })
-        }).catch(err => reject(err))
-    })
+                    newEvent.Events[`${eventType}`] = {
+                        EventType: eventType,
+                        Attributes : eventAttrs || {},
+                        Timestamp: new Date().toISOString(),
+                        Session: {
+                            Id: endpointId,
+                            StartTimestamp: new Date().toISOString()
+                        }
+                    }
+                    let params = {
+                        ApplicationId: COGNITO_PINPOINT_APPID,
+                        EventsRequest: {
+                            BatchItem: []
+                        }
+                    }
+                    params.EventsRequest.BatchItem = JSON.parse(ApplicationStorage.getItem(`AWS.Pinpoint.BatchEvents`) || "[]")
+                    params.EventsRequest.BatchItem.push(newEvent)
+                    if (params.EventsRequest.BatchItem.length >= 10 || timeToSendBatchOut) {
+                        var pinpoint = new AWS.Pinpoint({
+                            apiVersion: '2016-12-01',
+                            region: COGNITO_PINPOINT_REGION
+                        })
+                        pinpoint.putEvents(params, function (err, data) {
+                            ApplicationStorage.setItem(`AWS.Pinpoint.BatchEvents`, JSON.stringify([]))
+                            AWS.config.update({ credentials: lastCreds, region: lastRegion })
+                            err ? reject(err) : resolve(data)
+                        })
+                    } else {
+                        ApplicationStorage.setItem(`AWS.Pinpoint.BatchEvents`, JSON.stringify(params.EventsRequest.BatchItem))
+                    }
+                }).catch(err => {
+                    AWS.config.update({ region: lastRegion })
+                    reject(err)
+                })
+            }).catch(err => reject(err))
+        })
+    } else {
+        return Promise.resolve()
+    }
 }
 
 module.exports = {
