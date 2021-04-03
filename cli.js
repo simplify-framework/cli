@@ -1023,7 +1023,9 @@ if (ALLOWED_COMANDS.indexOf(cmdOPS) == -1) {
         }
     } else {
         processCLI("INIT").then(() => {
-            analytics.updateEndpoint()
+            if (process.env.ENABLE_TRACKING_DATA_FOR_ANALYTICS) {
+                analytics.updateEndpoint()
+            }
             detectNewVersion()
         })
     }
