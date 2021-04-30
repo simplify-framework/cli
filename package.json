@@ -25,7 +25,7 @@
   },
   "homepage": "https://github.com/simplify-framework/cli#readme",
   "dependencies": {
-    "amazon-cognito-identity-js": "^4.5.3",
+    "amazon-cognito-identity-js": "^4.6.0",
     "cross-fetch": "^3.0.6",
     "dotenv": "^8.2.0",
     "readline-sync": "^1.4.10",
