@@ -1,1039 +1,1254 @@
 #!/usr/bin/env node
 'use strict';
-global.crypto = require('crypto')
 const path = require('path')
+const crypto = require('crypto')
 const fs = require('fs')
-const fetch = require('node-fetch')
-const { yamlParse } = require('yaml-cfn');
-process.env.DISABLE_BOX_BANNER = true
-const simplify = require('simplify-sdk')
-const utilities = require('simplify-sdk/utilities')
-const provider = require('simplify-sdk/provider');
-const readlineSync = require('readline-sync');
-const { options } = require('yargs');
-const analytics = require('./pinpoint');
-const { exec } = require('child_process');
-const { authenticate, registerUser, confirmRegistration, getCurrentSession, userSignOut } = require('./cognito');
-const yargs = require('yargs');
-const { PLAN_DEFINITIONS, ALLOWED_COMANDS, AVAILABLE_COMMANDS } = require('./const')
-const getOptionDesc = function (cmdOpt, optName) {
-    const options = (AVAILABLE_COMMANDS.find(cmd => cmd.name == cmdOpt) || { options: [] }).options
-    return (options.find(opt => opt.name == optName) || { desc: '' }).desc
-}
-var currentSubscription = "Basic"
-var functionMeta = { lashHash256: null }
-const opName = `executeCLI`
+const AdmZip = require('adm-zip')
+const utilities = require('./utilities')
+const CBEGIN = '\x1b[32m'
 const CERROR = '\x1b[31m'
-const CGREEN = '\x1b[32m'
-const CPROMPT = '\x1b[33m'
 const CNOTIF = '\x1b[33m'
 const CRESET = '\x1b[0m'
 const CDONE = '\x1b[37m'
-const CBRIGHT = '\x1b[37m'
-const CUNDERLINE = '\x1b[4m'
-const COLORS = function (name) {
-    const colorCodes = ["\x1b[31m", "\x1b[32m", "\x1b[33m", "\x1b[34m", "\x1b[35m", "\x1b[36m", "\x1b[31m", "\x1b[32m", "\x1b[33m", "\x1b[34m", "\x1b[35m", "\x1b[36m", "\x1b[31m", "\x1b[32m", "\x1b[33m", "\x1b[34m", "\x1b[35m", "\x1b[36m", "\x1b[31m", "\x1b[32m", "\x1b[33m", "\x1b[34m", "\x1b[35m", "\x1b[36m", "\x1b[31m", "\x1b[32m", "\x1b[33m", "\x1b[34m", "\x1b[35m", "\x1b[36m"]
-    return colorCodes[(name.toUpperCase().charCodeAt(0) - 65) % colorCodes.length]
-}
-const envFilePath = path.resolve('.env')
-if (fs.existsSync(envFilePath)) {
-    require('dotenv').config({ path: envFilePath })
-}
+/**
+ * [Storage] adaptor.createBucket(params, callback)
+ * [Storage] adaptor.upload(params, callback)
+ * [Function] adaptor.createFunction(params, callback)
+ * [Function] adaptor.updateFunctionCode(params, callback)
+ * [Function] adaptor.updateFunctionConfiguration(params, callback)
+ * [Function] adaptor.getLayerVersion(params, callback)
+ * [Function] adaptor.getFunction(params, callback)
+ * [Function] adaptor.publishLayerVersion(params, callback)
+ * [Resource] adaptor.createStack(params, callback)
+ * [Resource] adaptor.updateStack(params, callback)
+ * [Resource] adaptor.deleteStack(params, callback)
+ * [Resource] adaptor.describeStacks(params, callback)
+ * [APIGateway] adaptor.updateStage(params, callback)
+ * [APIGateway] adaptor.createDeployment(params, callback)
+ * [KMS] adaptor.getKeyPolicy(params, callback)
+ * [KMS] adaptor.putKeyPolicy(params, callback)
+ * [CloudWatchLog] adaptor.associateKmsKey(params, callback)
+ * [CloudWatchLog] adaptor.disassociateKmsKey(params, callback)
+ * [CloudWatchLog] adaptor.putRetentionPolicy(params, callback)
+ * [CloudWatch] adaptor.getMetricStatistics(params, callback)
+ * [IAM] adaptor.updateRolePolicy(params, callback)
+ * [IAM] adaptor.deleteRolePolicy(params, callback)
+ * [IAM] adaptor.createRole(params, callback)
+ * [IAM] adaptor.deleteRole(params, callback)
+ */
 
 const showBoxBanner = function () {
     console.log("╓───────────────────────────────────────────────────────────────╖")
-    console.log(`║                 Simplify CLI - Version ${require('./package.json').version}                 ║`)
+    console.log(`║              Simplify Framework - Version ${require('./package.json').version}              ║`)
     console.log("╙───────────────────────────────────────────────────────────────╜")
 }
 
-const getFunctionArn = function (functionName, locationFolder) {
-    const outputFile = path.resolve(locationFolder, `StackConfig.json`)
-    if (fs.existsSync(outputFile)) {
-        const outputData = JSON.parse(fs.readFileSync(outputFile))
-        return outputData[functionName].FunctionArn
+const getFunctionSha256 = function (outputFilePath, name) {
+    if (fs.existsSync(outputFilePath)) {
+        let configOutput = JSON.parse(fs.readFileSync(outputFilePath))
+        return {
+            FileSha256: configOutput.Configuration.Environment.Variables[name],
+            HashSource: configOutput.Configuration.FunctionName
+        }
+    }
+    return {
+        FileSha256: "NOT_FOUND"
+    }
+}
+
+const getContentArgs = function (...args) {
+    var template = args.shift()
+    function parseVariables(v) {
+        args.forEach(function (a) {
+            if (typeof a === 'object') {
+                Object.keys(a).map(function (i) {
+                    if (a[i]) {
+                        v = v.replace(new RegExp('\\${' + i + '}', 'g'), a[i])
+                    }
+                })
+            }
+        })
+        Object.keys(process.env).map(function (e) {
+            v = v.replace(new RegExp('\\${' + e + '}', 'g'), process.env[e])
+        })
+        v = v.replace(/\${DATE_TODAY}/g, utilities.getDateToday()).replace(/\${TIME_MOMENT}/g, utilities.getTimeMoment())
+        v = v.replace(new RegExp(/ *\{[^)]*\} */, 'g'), `(not set)`).replace(new RegExp('\\$', 'g'),'')
+        return v
+    }
+    function parseKeyValue(obj) {
+        Object.keys(obj).map(function (k, i) {
+            if (typeof obj[k] === 'string') obj[k] = parseVariables(obj[k])
+            else if (Array.isArray(obj)) obj[i] = parseKeyValue(obj[i])
+            else if (typeof obj[k] === 'object') obj[k] = parseKeyValue(obj[k])
+        })
+        return obj
+    }
+    return parseKeyValue(template)
+}
+
+const getInputConfig = function (...args) {
+    let config = {}, firstParam = args.shift()
+    if (typeof firstParam === 'string') {
+        config = JSON.parse(fs.readFileSync(firstParam))
     } else {
-        return undefined
+        config = firstParam
     }
+    return getContentArgs(config, ...args)
 }
 
-const getErrorMessage = function (error) {
-    return error.message ? error.message : JSON.stringify(error)
-}
+const getContentFile = getInputConfig;
 
-const deployStack = function (options) {
-    const { configFile, envFile, dataFile, envName, configStackFolder, configStackName, regionName, headless } = options
-    const envFilePath = path.resolve(envFile || '.env')
-    if (fs.existsSync(envFilePath)) {
-        require('dotenv').config({ path: envFilePath })
-    }
-    const envOptions = { DEPLOYMENT_ENV: envName, DEPLOYMENT_REGION: regionName }
-    var config = simplify.getInputConfig(path.resolve(configFile || 'config.json'), envOptions)
-    const stackConfigFile = path.resolve(config.OutputFolder, envName || process.env.DEPLOYMENT_ENV, 'StackConfig.json')
-    const stackYamlFile = path.resolve(configStackFolder, `${configStackName}`, `template.yaml`)
-    if (!fs.existsSync(stackYamlFile)) {
-        simplify.finishWithErrors(`${opName}-CheckTemplate`, `${stackYamlFile} not found.`)
-    }
-    config.FunctionName = `${process.env.FUNCTION_NAME}-${process.env.DEPLOYMENT_ENV}`
-    const stackFullName = `${process.env.PROJECT_NAME || config.FunctionName}-${configStackName}-${process.env.DEPLOYMENT_ENV}`
-    const stackExtension = path.resolve(configStackFolder, configStackName, `extension`)
-    return new Promise(function (resolve) {
-        provider.setConfig(config).then(function () {
-            simplify.uploadLocalFile({
-                adaptor: provider.getStorage(),
-                ...{ bucketKey: config.Bucket.Key, inputLocalFile: stackYamlFile }
-            }).then(function (uploadInfo) {
-                function processStackData(stackData) {
-                    let outputData = {}
-                    outputData[configStackName] = { "LastUpdate": Date.now(), "Type": "CF-Stack" }
-                    stackData.Outputs.map(function (o) {
-                        outputData[configStackName][o.OutputKey] = o.OutputValue
-                    })
-                    if (fs.existsSync(stackConfigFile)) {
-                        outputData = { ...JSON.parse(fs.readFileSync(stackConfigFile)), ...outputData }
-                    }
-                    const pathDirName = path.dirname(path.resolve(stackConfigFile))
-                    if (!fs.existsSync(pathDirName)) {
-                        fs.mkdirSync(pathDirName, { recursive: true })
-                    }
-                    fs.writeFileSync(stackConfigFile, JSON.stringify(outputData, null, 4))
-                    simplify.finishWithMessage(`${configStackName}`, `${outputData[configStackName].Endpoint || outputData[configStackName].Region}`)
-                    return outputData
-                }
-                function createStack(stackTemplate, parameters, stackPluginModule) {
-                    return new Promise(function (resolve) {
-                        simplify.createOrUpdateStackOnComplete({
-                            adaptor: provider.getResource(),
-                            ...{
-                                stackName: `${stackFullName}`,
-                                stackParameters: {
-                                    ...parameters
-                                },
-                                stackTemplate: stackTemplate
-                            }
-                        }).then(function (stackData) {
-                            if (stackPluginModule && typeof stackPluginModule.postCreation === 'function') {
-                                stackPluginModule.postCreation({ simplify, provider, config }, configStackName, stackData).then(result => processStackData(result))
-                                simplify.consoleWithMessage(`${opName}-PostCreation`, `${stackExtension + '.js'} - (Executed)`)
-                            } else {
-                                simplify.consoleWithMessage(`${opName}-PostCreation`, `${stackExtension + '.js'} - (Skipped)`)
-                                processStackData(stackData)
-                            }
-                            resolve()
-                        }).catch(error => {
-                            simplify.finishWithErrors(`${opName}-Create${configStackName}`, getErrorMessage(error)) && resolve()
-                        })
-                    })
-                }
-                function mappingParameters(docYaml, parameters) {
-                    let resultParameters = {}
-                    let resultErrors = null
-                    let stackOutputData = {}
-                    let stackParamteres = {}
-                    if (fs.existsSync(stackConfigFile)) {
-                        stackOutputData = JSON.parse(fs.readFileSync(stackConfigFile))
-                        Object.keys(stackOutputData).map(stackName => {
-                            Object.keys(stackOutputData[stackName]).map(param => {
-                                if (["LastUpdate", "Type"].indexOf(param) == -1) {
-                                    stackParamteres[`${stackName}.${CUNDERLINE}${param}${CRESET}`] = stackOutputData[stackName][param]
-                                }
-                            })
-                        })
-                    }
-                    Object.keys(docYaml.Parameters).map(paramName => {
-                        function getSimilarParameter(stackParamteres, paramName) {
-                            let foundParam = stackParamteres[Object.keys(stackParamteres).find(x => paramName == x.replace(/\x1b\[[0-9;]*m/g, "").replace(/[\W_]/g, ''))]
-                            return foundParam || stackParamteres[Object.keys(stackParamteres).find(x => paramName.indexOf(x.split('.')[1].replace(/\x1b\[[0-9;]*m/g, "")) >= 0)]
-                        }
-                        resultParameters[paramName] = parameters[paramName] || getSimilarParameter(stackParamteres, paramName)
-                        if (!resultParameters[paramName]) {
-                            if (!resultErrors) resultErrors = []
-                            resultErrors.push({
-                                name: paramName,
-                                type: docYaml.Parameters[paramName].Type
-                            })
-                        }
-                    })
-                    return { resultParameters, resultErrors, stackOutputData, stackParamteres }
-                }
-
-                function selectParameter(param, docYaml, resultParameters, stackParamteres) {
-                    const descParam = docYaml.Parameters[param].Description
-                    const allowedValues = docYaml.Parameters[param].AllowedValues
-                    const options = Object.keys(stackParamteres).map(x => `${x} = ${stackParamteres[x]}`)
-                    const index = readlineSync.keyInSelect(allowedValues || options, `Select a value for ${CPROMPT}${param}${CRESET} parameter (${descParam || ''}) ?`, {
-                        cancel: allowedValues ? `${CBRIGHT}None${CRESET} - (No change)` : `${CBRIGHT}Manual enter a value${CRESET} - (Continue)`
-                    })
-                    if (index >= 0) {
-                        resultParameters[param] = stackParamteres[Object.keys(stackParamteres)[index]]
-                    } else if (!allowedValues) {
-                        resultParameters[param] = readlineSync.question(`\n * Enter parameter value for ${CPROMPT}${param}${CRESET} (${docYaml.Parameters[param].Default || ''}) :`) || docYaml.Parameters[param].Default
-                    }
-                }
-
-                function reviewParameters(resultParameters, stackParamteres, docYaml) {
-                    let redoParamIndex = -1
-                    do {
-                        const reviewOptions = Object.keys(resultParameters).map(x => `${x} = ${resultParameters[x] || '(not set)'}`)
-                        redoParamIndex = headless ? -1 : readlineSync.keyInSelect(reviewOptions, `Do you want to change any of those parameters?`, { cancel: `${CBRIGHT}Continue to deploy${CRESET} - (No change)` })
-                        if (redoParamIndex !== -1) {
-                            selectParameter(Object.keys(resultParameters)[redoParamIndex], docYaml, resultParameters, stackParamteres)
-                        }
-                    } while (redoParamIndex !== -1)
-                }
-
-                function saveParameters(resultParameters) {
-                    fs.writeFileSync(path.resolve(configStackFolder, configStackName, dataFile), JSON.stringify(resultParameters, null, 4))
-                }
-
-                function processParameters(resultErrors, resultParameters, stackParamteres, docYaml) {
-                    if (!resultErrors) {
-                        reviewParameters(resultParameters, stackParamteres, docYaml)
-                        saveParameters(resultParameters)
-                        return createStack(templateURL, resultParameters, stackPluginModule)
-                    } else {
-                        resultErrors.map(error => {
-                            selectParameter(error.name, docYaml, resultParameters, stackParamteres)
-                        })
-                        reviewParameters(resultParameters, stackParamteres, docYaml)
-                        const finalResult = mappingParameters(docYaml, resultParameters)
-                        if (!finalResult.resultErrors) {
-                            saveParameters(resultParameters)
-                            return createStack(templateURL, finalResult.resultParameters, stackPluginModule)
-                        } else {
-                            finalResult.resultErrors.map(error => {
-                                const adjustParameter = error.name
-                                simplify.consoleWithErrors(`${opName}-Verification`, `(${stackFullName}) name=${adjustParameter} type=${error.type} is not set.`)
-                                finalResult.resultParameters[adjustParameter] = readlineSync.question(`\n * Enter parameter value for ${CPROMPT}${adjustParameter}${CRESET} :`)
-                            })
-                            saveParameters(finalResult.resultParameters)
-                            return createStack(templateURL, finalResult.resultParameters, stackPluginModule)
-                        }
-                    }
-                }
-
-                var templateURL = uploadInfo.Location
-                try {
-                    const docYaml = yamlParse(fs.readFileSync(stackYamlFile));
-                    var parameters = {
-                        Environment: process.env.DEPLOYMENT_ENV
-                    }
-                    if (fs.existsSync(path.resolve(configStackFolder, configStackName, dataFile))) {
-                        parameters = { ...parameters, ...JSON.parse(fs.readFileSync(path.resolve(configStackFolder, configStackName, dataFile))) }
-                    }
-                    var stackPluginModule = {}
-                    if (fs.existsSync(stackExtension + '.js')) {
-                        stackPluginModule = require(stackExtension)
-                    }
-                    if (typeof stackPluginModule.preCreation === 'function') {
-                        const { resultParameters, stackOutputData, stackParamteres } = mappingParameters(docYaml, parameters)
-                        stackPluginModule.preCreation({ simplify, provider, config }, configStackName, resultParameters, docYaml, stackOutputData).then(parameterResult => {
-                            const { resultParameters, resultErrors } = mappingParameters(docYaml, parameterResult)
-                            simplify.consoleWithMessage(`${opName}-PreCreation`, `${stackExtension + '.js'} - (Executed)`)
-                            processParameters(resultErrors, resultParameters, stackParamteres, docYaml).then(() => resolve()).catch(() => resolve())
-                        })
-                    } else {
-                        simplify.consoleWithMessage(`${opName}-PreCreation`, `${stackExtension + '.js'} - (Skipped)`)
-                        const { resultParameters, resultErrors, stackParamteres } = mappingParameters(docYaml, parameters)
-                        processParameters(resultErrors, resultParameters, stackParamteres, docYaml).then(() => resolve()).catch(() => resolve())
-                    }
-                } catch (error) {
-                    simplify.finishWithErrors(`${opName}-LoadYAMLResource:`, getErrorMessage(error)) && resolve()
-                }
-            })
-        }).catch(error => simplify.finishWithErrors(`${opName}-LoadYAMLResource:`, getErrorMessage(error)) && resolve())
+const updateFunctionRolePolicy = function (options) {
+    var { adaptor, opName, policyName, policyDocument, functionConfig } = options
+    opName = opName || `updateFunctionRolePolicy`
+    const roleName = functionConfig.Role.split('/')[1]
+    var params = {
+        PolicyDocument: JSON.stringify(policyDocument),
+        PolicyName: policyName || `${roleName}AttachedPolicy`,
+        RoleName: roleName
+    };
+    return new Promise(function (resolve, reject) {
+        adaptor.putRolePolicy(params, function (err, data) {
+            err ? reject(err) : resolve(data)
+        });
     })
 }
 
-const destroyStack = function (options) {
-    const { configFile, envFile, envName, configStackFolder, configStackName, regionName } = options
-    const envFilePath = path.resolve(envFile || '.env')
-    if (fs.existsSync(envFilePath)) {
-        require('dotenv').config({ path: envFilePath })
-    }
-    const envOptions = { DEPLOYMENT_ENV: envName, DEPLOYMENT_REGION: regionName }
-    var config = simplify.getInputConfig(path.resolve(configFile || 'config.json'), envOptions)
-    const stackConfigFile = path.resolve(config.OutputFolder, envName || process.env.DEPLOYMENT_ENV, 'StackConfig.json')
-    const stackList = fs.existsSync(stackConfigFile) ? JSON.parse(fs.readFileSync(stackConfigFile)) : {}
-    return new Promise(function (resolve) {
-        provider.setConfig(config).then(function () {
-            function deleteStack(stackName, stackPluginModule) {
-                const stackExtension = path.resolve(configStackFolder, stackName, `extension`)
-                const stackFullName = `${process.env.PROJECT_NAME || config.FunctionName}-${stackName}-${process.env.DEPLOYMENT_ENV}`
-                simplify.consoleWithMessage(`${opName}-CleanupResource`, `StackName - (${stackFullName})`)
-                return new Promise(function (resolve) {
-                    simplify.deleteStackOnComplete({
-                        adaptor: provider.getResource(),
-                        ...{
-                            stackName: `${stackFullName}`,
-                        }
-                    }).then(function (stackData) {
-                        if (stackPluginModule && typeof stackPluginModule.postCleanup === 'function') {
-                            stackPluginModule.postCleanup({ simplify, provider, config }, stackName, stackList, stackData).then(result => {
-                                delete stackList[stackName]
-                                fs.writeFileSync(stackConfigFile, JSON.stringify(stackList, null, 4))
-                                simplify.consoleWithMessage(`${opName}-PostCleanup`, `${stackExtension + '.js'} - (Executed)`)
-                                simplify.consoleWithMessage(`${opName}-${stackName}`, `${stackConfigFile} - (Changed)`)
-                                resolve()
-                            }).catch(function (error) {
-                                simplify.finishWithErrors(`${opName}-CleanupResource:`, getErrorMessage(error)) && resolve()
-                            })
-                        } else {
-                            delete stackList[stackName]
-                            fs.writeFileSync(stackConfigFile, JSON.stringify(stackList, null, 4))
-                            simplify.consoleWithMessage(`${opName}-PostCleanup`, `${stackExtension + '.js'} - (Skipped)`)
-                            simplify.consoleWithMessage(`${opName}-${stackName}`, `${stackConfigFile} - (Changed)`)
-                            resolve()
-                        }
-                    }).catch(function (error) {
-                        simplify.finishWithErrors(`${opName}-CleanupResource:`, getErrorMessage(error)) && resolve()
-                    })
-                })
+const createOrUpdateFunctionRole = function (options) {
+    var { adaptor, opName, roleName, policyDocument, assumeRoleDocument } = options
+    opName = opName || `createFunctionRole`
+    var params = {
+        AssumeRolePolicyDocument: assumeRoleDocument || `{
+            "Version": "2012-10-17",
+            "Statement": [
+               {
+                  "Effect": "Allow",
+                  "Principal": {
+                     "Service": [
+                        "lambda.amazonaws.com"
+                     ]
+                  },
+                  "Action": [
+                     "sts:AssumeRole"
+                  ]
+               }
+            ]
+        }`,
+        Path: "/",
+        RoleName: roleName
+    };
+    return new Promise(function (resolve, reject) {
+        adaptor.getRole({
+            RoleName: roleName
+        }, function (err, data) {
+            function createRolePolicy(data) {
+                policyDocument ? adaptor.putRolePolicy({
+                    PolicyDocument: JSON.stringify(policyDocument),
+                    PolicyName: `${roleName}Policy`,
+                    RoleName: roleName
+                }, function (err) {
+                    err ? reject(err) : resolve(data)
+                }) : resolve(data)
             }
-            function deleteByStackName(stackName) {
-                var stackPluginModule = {}
-                const stackExtension = path.resolve(configStackFolder, stackName, `extension`)
-                if (fs.existsSync(stackExtension + '.js')) {
-                    stackPluginModule = require(stackExtension)
-                }
-                return new Promise(function (resolve) {
-                    if (stackPluginModule && typeof stackPluginModule.preCleanup === 'function') {
-                        stackPluginModule.preCleanup({ simplify, provider, config }, stackName, stackList).then(stackName => {
-                            simplify.consoleWithMessage(`${opName}-PreCleanup`, `${stackExtension + '.js'} - (Executed)`)
-                            deleteStack(stackName, stackPluginModule).then(() => resolve()).catch(() => resolve())
-                        }).catch(function (error) {
-                            simplify.finishWithErrors(`${opName}-PreCleanup`, getErrorMessage(error)) && resolve()
-                        })
-                    } else {
-                        simplify.consoleWithMessage(`${opName}-PreCleanup`, `${stackExtension + '.js'} - (Skipped)`)
-                        deleteStack(stackName, stackPluginModule).then(() => resolve()).catch(() => resolve())
-                    }
+            if (err) {
+                consoleWithMessage(`${opName}-Create`, `${roleName.truncate(50)}`)
+                adaptor.createRole(params, function (err, data) {
+                    err ? reject(err) : createRolePolicy(data)
                 })
+            } else {
+                consoleWithMessage(`${opName}-Update`, `${roleName.truncate(50)}`)
+                createRolePolicy(data)
             }
-            deleteByStackName(configStackName).then(() => resolve()).catch(() => resolve())
-        }).catch(function (error) {
-            simplify.finishWithErrors(`${opName}-LoadCredentials`, getErrorMessage(error)) && resolve()
         })
     })
 }
 
-const deployFunction = function (options) {
-    const { regionName, functionName, envName, configFile, envFile, roleFile, policyFile, sourceDir, forceUpdate, asFunctionLayer, publishNewVersion } = options
-    const envFilePath = path.resolve(functionName ? functionName : '', envFile || '.env')
-    if (fs.existsSync(envFilePath)) {
-        require('dotenv').config({ path: envFilePath })
-    }
-    const envOptions = { FUNCTION_NAME: functionName, DEPLOYMENT_ENV: envName, DEPLOYMENT_REGION: regionName }
-    var config = simplify.getInputConfig(path.resolve(functionName ? functionName : '', configFile || 'config.json'), envOptions)
-    const stackConfigFile = path.resolve(config.OutputFolder, envName || process.env.DEPLOYMENT_ENV, 'StackConfig.json')
-    var policyDocument = simplify.getContentFile(path.resolve(functionName ? functionName : '', policyFile || 'policy.json'), envOptions)
-    var assumeRoleDocument = simplify.getContentFile(path.resolve(functionName ? functionName : '', roleFile || 'role.json'), envOptions)
-    if (!fs.existsSync(path.resolve(config.OutputFolder))) {
-        fs.mkdirSync(path.resolve(config.OutputFolder), { recursive: true })
-    }
-    const outputFunctionFilePath = path.resolve(config.OutputFolder, `${envName || process.env.DEPLOYMENT_ENV}`, `${functionName || process.env.FUNCTION_NAME}.json`)
-    const hashFunctionFilePath = path.resolve(config.OutputFolder, `${envName || process.env.DEPLOYMENT_ENV}`, `${functionName || process.env.FUNCTION_NAME}.hash`)
-    if (fs.existsSync(hashFunctionFilePath)) {
-        functionMeta.lashHash256 = fs.readFileSync(hashFunctionFilePath).toString()
-    }
+const deleteFunctionRolePolicy = function (options) {
+    var { adaptor, opName, policyName, functionConfig } = options
+    opName = opName || `deleteFunctionRolePolicy`
+    const roleName = functionConfig.Role.split('/')[1]
+    var params = {
+        PolicyName: policyName || `${roleName}AttachedPolicy`,
+        RoleName: roleName
+    };
     return new Promise(function (resolve) {
-        provider.setConfig(config).then(_ => {
-            const roleName = `${config.Function.FunctionName}Role`
-            return simplify.createOrUpdateFunctionRole({
-                adaptor: provider.getIAM(),
-                roleName: roleName,
-                policyDocument: policyDocument,
-                assumeRoleDocument: JSON.stringify(assumeRoleDocument)
-            })
-        }).then(data => {
-            functionMeta.functionRole = data.Role
-            return simplify.uploadDirectoryAsZip({
-                adaptor: provider.getStorage(),
-                ...{
-                    bucketKey: config.Bucket.Key,
-                    inputDirectory: path.resolve(functionName ? functionName : '', sourceDir || 'src'),
-                    outputFilePath: path.resolve(functionName ? functionName : '', 'dist'),
-                    hashInfo: { FileSha256: forceUpdate ? 'INVALID' : functionMeta.lashHash256 }
-                }
-            })
-        }).then(uploadInfor => {
-            functionMeta.uploadInfor = uploadInfor
-            config.Function.Role = functionMeta.functionRole.Arn
-            if (!uploadInfor.isHashIdentical) {
-                return asFunctionLayer ? simplify.createFunctionLayerVersion({
-                    adaptor: provider.getFunction(),
-                    ...{
-                        layerConfig: {
-                            "CompatibleRuntimes": [config.Function.Runtime],
-                            "LayerName": config.Function.FunctionName
-                        },
-                        functionConfig: config.Function,
-                        bucketName: config.Bucket.Name,
-                        bucketKey: uploadInfor.Key
-                    }
-                }) : simplify.createOrUpdateFunction({
-                    adaptor: provider.getFunction(),
-                    ...{
-                        functionConfig: config.Function,
-                        bucketName: config.Bucket.Name,
-                        bucketKey: uploadInfor.Key
-                    }
-                })
-            } else {
-                return Promise.resolve({ ...config.Function })
+        adaptor.deleteRolePolicy(params, function () {
+            resolve(params)
+        });
+    })
+}
+
+const deleteFunctionRole = function (options) {
+    var { adaptor, opName, roleName } = options
+    opName = opName || `deleteFunctionRole`
+    var params = {
+        RoleName: roleName
+    };
+    return new Promise(function (resolve, reject) {
+        adaptor.deleteRolePolicy({
+            PolicyName: `${roleName}Policy`,
+            RoleName: roleName
+        }, function () {
+            adaptor.deleteRole(params, function () {
+                resolve({ roleName })
+            });
+        });
+    })
+}
+
+const createOrUpdateStack = function (options) {
+    var { adaptor, opName, stackName, stackParameters, stackTemplate } = options
+    opName = opName || `createOrUpdateStack`
+    function getParameters(params) {
+        return Object.keys(params).map(function (k) {
+            return {
+                ParameterKey: k,
+                ParameterValue: params[k],
+                ResolvedValue: params[k],
+                UsePreviousValue: false
             }
-        }).then(function (data) {
-            const writeStackOutput = function (config, data) {
-                let outputData = {}
-                const functionRegion = data.FunctionArn.split(':')[3]
-                outputData[functionName || process.env.FUNCTION_NAME] = {
-                    LastUpdate: Date.now(),
-                    Region: functionRegion,
-                    FunctionName: config.Function.FunctionName,
-                    FunctionArn: data.FunctionArn,
-                    Type: "Function"
-                }
-                if (fs.existsSync(stackConfigFile)) {
-                    outputData = { ...JSON.parse(fs.readFileSync(stackConfigFile)), ...outputData }
-                }
-                const pathDirName = path.dirname(path.resolve(stackConfigFile))
-                if (!fs.existsSync(pathDirName)) {
-                    fs.mkdirSync(pathDirName, { recursive: true })
-                }
-                fs.writeFileSync(stackConfigFile, JSON.stringify(outputData, null, 4))
-            }
-            if (asFunctionLayer) {
-                try {
-                    let configInput = JSON.parse(fs.readFileSync(path.resolve(functionName ? functionName : '', configFile || 'config.json')))
-                    configInput.Function.Layers = data.Layers
-                    fs.writeFileSync(path.resolve(functionName ? functionName : '', configFile || 'config.json'), JSON.stringify(configInput, null, 4))
-                    resolve()
-                } catch (error) {
-                    simplify.finishWithErrors(`${opName}-DeployLayer`, getErrorMessage(error)) && resolve()
-                }
-            } else {
-                if (data && data.FunctionArn) {
-                    functionMeta = { ...functionMeta, data }
-                    if (publishNewVersion) {
-                        simplify.publishFunctionVersion({
-                            adaptor: provider.getFunction(),
-                            ...{
-                                functionConfig: config.Function,
-                                functionMeta: functionMeta
-                            }
-                        }).then(functionVersion => {
-                            writeStackOutput(config, functionVersion)
-                            functionMeta.data = functionVersion /** update versioned metadata */
-                            fs.writeFileSync(outputFunctionFilePath, JSON.stringify(functionMeta, null, 4))
-                            fs.writeFileSync(hashFunctionFilePath, functionMeta.uploadInfor.FileSha256)
-                            simplify.consoleWithMessage(`${opName}-PublishFunction`, `Done: ${functionVersion.FunctionArn}`)
-                            resolve()
-                        }).catch(err => simplify.finishWithErrors(`${opName}-PublishFunction-ERROR`, err) && resolve())
-                    } else {
-                        writeStackOutput(config, data)
-                        fs.writeFileSync(outputFunctionFilePath, JSON.stringify(functionMeta, null, 4))
-                        fs.writeFileSync(hashFunctionFilePath, functionMeta.uploadInfor.FileSha256)
-                        simplify.consoleWithMessage(`${opName}-DeployFunction`, `Done: ${data.FunctionArn}`)
-                        resolve()
-                    }
+        })
+    }
+    return new Promise(function (resolve, reject) {
+        var params = {
+            StackName: stackName,
+            Capabilities: [
+                "CAPABILITY_IAM",
+                "CAPABILITY_NAMED_IAM",
+                "CAPABILITY_AUTO_EXPAND"
+            ],
+            EnableTerminationProtection: process.env.STACK_PROTECTION || false,
+            OnFailure: process.env.STACK_ON_FAILURE || "ROLLBACK", //DO_NOTHING | DELETE
+            Parameters: getParameters(stackParameters),
+            RollbackConfiguration: {
+                MonitoringTimeInMinutes: 0
+            },
+            Tags: [{ Key: 'Framework', Value: 'Simplify' }],
+            TemplateURL: stackTemplate,
+            TimeoutInMinutes: 15
+        };
+        adaptor.createStack(params, function (err, data) {
+            if (err) {
+                if (err.code == 'AlreadyExistsException') {
+                    delete params.EnableTerminationProtection
+                    delete params.OnFailure
+                    delete params.TimeoutInMinutes
+                    adaptor.updateStack(params, function (err, data) {
+                        err ? reject(err) : resolve(data)
+                    })
                 } else {
-                    simplify.consoleWithMessage(`${opName}-DeployFunction`, `Done: Your code is up to date!`) && resolve()
+                    reject(err)
                 }
             }
-        }).catch(error => simplify.finishWithErrors(`${opName}-UploadFunction-ERROR`, getErrorMessage(error))).catch(error => {
-            simplify.consoleWithErrors(`${opName}-DeployFunction-ERROR`, getErrorMessage(error)) && resolve()
-        })
+            else {
+                resolve(data)
+            }
+        });
     })
 }
 
-const destroyFunction = function (options) {
-    const { regionName, functionName, envName, configFile, envFile, withFunctionLayer } = options
-    const envFilePath = path.resolve(functionName ? functionName : '', envFile || '.env')
-    if (fs.existsSync(envFilePath)) {
-        require('dotenv').config({ path: envFilePath })
-    }
-    const envOptions = { FUNCTION_NAME: functionName, DEPLOYMENT_ENV: envName, DEPLOYMENT_REGION: regionName }
-    var config = simplify.getInputConfig(path.resolve(functionName ? functionName : '', configFile || 'config.json'), envOptions)
-    const stackConfigFile = path.resolve(config.OutputFolder, envName || process.env.DEPLOYMENT_ENV, 'StackConfig.json')
-    const outputFunctionFilePath = path.resolve(config.OutputFolder, `${envName || process.env.DEPLOYMENT_ENV}`, `${functionName || process.env.FUNCTION_NAME}.json`)
-    const hashFunctionFilePath = path.resolve(config.OutputFolder, `${envName || process.env.DEPLOYMENT_ENV}`, `${functionName || process.env.FUNCTION_NAME}.hash`)
-    const stackList = fs.existsSync(stackConfigFile) ? JSON.parse(fs.readFileSync(stackConfigFile)) : {}
-    return new Promise(function (resolve) {
-        provider.setConfig(config).then(_ => {
-            const roleName = `${config.Function.FunctionName}Role`
-            return simplify.deleteFunctionRole({
-                adaptor: provider.getIAM(),
-                roleName: roleName
-            })
-        }).then(_ => {
-            return simplify.deleteFunction({
-                adaptor: provider.getFunction(),
-                functionConfig: config.Function,
-                withLayerVersions: withFunctionLayer || false
-            }).then(data => {
-                delete stackList[functionName || process.env.FUNCTION_NAME]
-                fs.writeFileSync(stackConfigFile, JSON.stringify(stackList, null, 4))
-                let configInput = JSON.parse(fs.readFileSync(path.resolve(functionName ? functionName : '', configFile || 'config.json')))
-                configInput.Function.Layers = []
-                fs.writeFileSync(path.resolve(functionName ? functionName : '', configFile || 'config.json'), JSON.stringify(configInput, null, 4))
-                fs.unlinkSync(hashFunctionFilePath)
-                fs.unlinkSync(outputFunctionFilePath)
-                simplify.consoleWithMessage(`${opName}-DestroyFunction`, `Done. ${data.FunctionName}`)
-            })
-        }).then(data => {
-            return simplify.deleteDeploymentBucket({ adaptor: provider.getStorage(), bucketName: config.Bucket.Name }).then(function () {
-                simplify.consoleWithMessage(`${opName}-DestroyBucket`, `Done. ${config.Bucket.Name}`)
-                resolve()
-            })
-        }).catch(error => simplify.consoleWithMessage(`${opName}-DestroyFunction-ERROR`, getErrorMessage(error)) && resolve())
+const deleteExistingStack = function (options) {
+    var { adaptor, opName, stackName } = options
+    opName = opName || `deleteExistingStack`
+    var params = {
+        StackName: stackName
+    };
+    return new Promise(function (resolve, reject) {
+        adaptor.deleteStack(params, function (err, data) {
+            err ? reject(err) : resolve(data)
+        });
     })
 }
 
-const createStackOnInit = function (stackNameOrURL, locationFolder, envArgs) {
-    const writeTemplateOutput = (templateFolderName, projectLocation) => {
-        const inputDirectory = path.join(__dirname, ...templateFolderName.split('/'), typeof stackNameOrURL === 'string' ? stackNameOrURL : '')
-        if (fs.existsSync(inputDirectory)) {
-            return new Promise(function (resolve) {
+const checkStackStatusOnComplete = function (options, stackData) {
+    var { adaptor, opName } = options
+    opName = opName || `checkStackStatusOnComplete`
+    return new Promise(function (resolve, reject) {
+        var params = {
+            StackName: stackData.StackId || stackData.StackName
+        };
+        adaptor.describeStacks(params, function (err, data) {
+            if (err) resolve({
+                Error: err,
+                StackStatus: stackData.StackStatus,
+                StackName: stackData.StackName,
+                StackId: stackData.StackId
+            }); // resolve to FINISH in case there was an error
+            else {
+                var currentStack = data.Stacks.length > 0 ? data.Stacks[0] : stackData
+                if (data.Stacks.length && (
+                    currentStack.StackStatus == "UPDATE_COMPLETE" ||
+                    currentStack.StackStatus == "UPDATE_ROLLBACK_COMPLETE" ||
+                    currentStack.StackStatus == "UPDATE_FAILED" ||
+                    currentStack.StackStatus == "CREATE_COMPLETE" ||
+                    currentStack.StackStatus == "ROLLBACK_COMPLETE" ||
+                    currentStack.StackStatus == "ROLLBACK_FAILED" ||
+                    currentStack.StackStatus == "DELETE_COMPLETE" ||
+                    currentStack.StackStatus == "DELETE_FAILED"
+                )) {
+                    adaptor.describeStackEvents(params, function (err, data) {
+                        if (err) resolve(currentStack)
+                        else {
+                            const errorMessages = data.StackEvents.map(stackEvent => {
+                                if (stackEvent.ResourceStatusReason && (
+                                    stackEvent.ResourceStatus === "DELETE_FAILED" ||
+                                    stackEvent.ResourceStatus === "ROLLBACK_FAILED" ||
+                                    stackEvent.ResourceStatus === "CREATE_FAILED" ||
+                                    stackEvent.ResourceStatus === "UPDATE_FAILED" ||
+                                    stackEvent.ResourceStatus === "IMPORT_FAILED"
+                                )) {
+                                    return `${CRESET}(${stackEvent.LogicalResourceId}) - ${CERROR}${stackEvent.ResourceStatus}${CRESET} - ${CNOTIF}${stackEvent.ResourceStatusReason}${CRESET}`
+                                }
+                            }).filter(msgNotNull => msgNotNull).reduce((arr, item) => [
+                                ...arr.filter((obj) => obj.ResourceStatusReason !== item.ResourceStatusReason), item
+                            ], []);
+                            if (currentStack.StackStatus == "UPDATE_COMPLETE" ||
+                                currentStack.StackStatus == "CREATE_COMPLETE" ||
+                                currentStack.StackStatus == "DELETE_COMPLETE") {
+                                resolve(currentStack)
+                            } else {
+                                resolve({
+                                    Error: {
+                                        message: errorMessages.join('\n - ')
+                                    },
+                                    StackStatus: currentStack.StackStatus,
+                                    StackName: currentStack.StackName,
+                                    StackId: currentStack.StackId
+                                })
+                            }
+                        }
+                    })
+                } else {
+                    // reject to CONTINUE, in case --deletion the stack will be disapeared with undefined
+                    if (!currentStack.StackStatus && currentStack.ResponseMetadata) {
+                        resolve({ StackStatus: 'CLEANUP_COMPLETE' })
+                    } else {
+
+                        reject(currentStack)
+                    }
+                }
+            }
+        });
+    })
+}
+
+const uploadLocalDirectory = function (options) {
+    var { adaptor, opName, publicACL, bucketName, bucketKey, inputDirectory } = options
+    opName = opName || `uploadLocalDirectory`
+    return new Promise(function (resolve, reject) {
+        adaptor.createBucket(function (err) {
+            if (!err || (err.code == 'BucketAlreadyOwnedByYou')) {
                 utilities.getFilesInDirectory(inputDirectory).then(function (files) {
+                    var index = 0
+                    var fileInfos = []
                     files.forEach(function (filePath) {
-                        var outputFileName = filePath.replace(inputDirectory, `${projectLocation}`).replace(/^projects\//, '').replace(/^\/+/, '').replace(/^\\+/, '')
+                        var fileKeyName = filePath.replace(inputDirectory, '').replace(/^\/+/, '').replace(/^\\+/, '')
+                        fileKeyName = fileKeyName.replace(/\\+/g, '/')
                         fs.readFile(filePath, function (err, data) {
                             if (err) reject(err)
                             else {
-                                const pathDirName = path.dirname(path.resolve(locationFolder, outputFileName))
-                                if (!fs.existsSync(pathDirName)) {
-                                    fs.mkdirSync(pathDirName, { recursive: true })
+                                var params = {
+                                    Key: bucketKey ? (bucketKey + '/' + fileKeyName) : fileKeyName,
+                                    Body: data
+                                };
+                                if (bucketName) {
+                                    params.Bucket = bucketName
                                 }
-                                let dataReadBuffer = fs.readFileSync(filePath).toString('utf8')
-                                if (outputFileName.endsWith('dotenv') || outputFileName.endsWith('package.json')) {
-                                    const parserArgs = typeof stackNameOrURL === 'object' ? stackNameOrURL : envArgs || {}
-                                    Object.keys(parserArgs).map(k => {
-                                        const regExVar = new RegExp(`##${k}##`, 'g')
-                                        dataReadBuffer = dataReadBuffer.replace(regExVar, parserArgs[k])
-                                    })
+                                if (publicACL) {
+                                    params.ACL = 'public-read'
+                                    params.ContentDisposition = 'inline'
+                                    var fileName = path.basename(fileKeyName)
+                                    params.ContentType =
+                                        fileName.endsWith('.html') ? 'text/html' :
+                                            fileName.endsWith('.css') ? 'text/css' :
+                                                fileName.endsWith('.js') ? 'application/javascript' :
+                                                    'application/octet-stream'
                                 }
-                                fs.writeFileSync(path.resolve(locationFolder, outputFileName.replace('dotenv', '.env')), dataReadBuffer)
+                                consoleWithMessage(`\t Uploading-InProgress`, `\t${0} %`);
+                                adaptor.upload(params).on('httpUploadProgress', event => {
+                                    consoleWithMessage(`\t Uploading-InProgress`, `\t${parseInt(100 * event.loaded / event.total)} %`);
+                                }).send((err, data) => {
+                                    if (err) {
+                                        consoleWithMessage(`${opName}-FileUpload`, `${CERROR}(ERROR)${CRESET} ${err}`)
+                                        reject(err)
+                                    } else {
+                                        fileInfos.push(data)
+                                        consoleWithMessage(`${opName}-FileUpload`, `${params.Key}`)
+                                        if (++index >= files.length) {
+                                            resolve(fileInfos)
+                                        }
+                                    }
+                                })
                             }
                         })
                     })
-                    resolve()
-                }).catch(err => console.log("ERRR:", err))
-            })
-        } else {
-            return Promise.resolve()
-        }
-    }
-    if (typeof stackNameOrURL === 'string') {
-        if (stackNameOrURL.startsWith("https://")) {
-            return new Promise(function (resolve) {
-                fetch(stackNameOrURL.replace("https://github.com/", "https://raw.githubusercontent.com/").replace("/blob/", "/")).then(response => response.text()).then(templateYAML => {
-                    const partialUris = stackNameOrURL.split('/').slice(-2)
-                    const projectLocation = partialUris.length > 1 ? partialUris[0] : argv.name || '.'
-                    var outputFileName = (`${projectLocation}/template.yaml`).replace(/^\/+/, '').replace(/^\\+/, '')
-                    const pathDirName = path.dirname(path.resolve(outputFileName))
-                    if (!fs.existsSync(pathDirName)) {
-                        fs.mkdirSync(pathDirName, { recursive: true })
-                    }
-                    fs.writeFileSync(path.resolve(outputFileName), templateYAML)
-                    console.log(`\n * The ${projectLocation} stack has created successfully. Try simplify-cli deploy ${projectLocation}\n`)
-                    resolve()
-                }).catch(error => simplify.finishWithErrors(`${opName}-DownloadTemplate-ERROR`, getErrorMessage(error)) && resolve())
-            })
-        } else {
-            return new Promise(function (resolve) {
-                Promise.all([
-                    writeTemplateOutput("basic/functions", argv.name || stackNameOrURL),
-                    writeTemplateOutput("basic/stacks", argv.name || stackNameOrURL)
-                ]).then(() => {
-                    console.log(`\n - The ${CGREEN}${argv.name || stackNameOrURL}${CRESET} stack has created successfully. Try simplify-cli deploy ${argv.name || stackNameOrURL}\n`)
-                    resolve()
-                }).catch(() => resolve())
-            })
-        }
-    } else {
-        return writeTemplateOutput("basic/projects", "")
-    }
-}
-
-const printListingDialog = function (options, prompt) {
-    const { regionName, configFile, envFile, envName } = options
-    const envFilePath = path.resolve(envFile || '.env')
-    if (fs.existsSync(envFilePath)) {
-        require('dotenv').config({ path: envFilePath })
-    }
-    const envOptions = { DEPLOYMENT_ENV: envName, DEPLOYMENT_REGION: regionName }
-    var config = simplify.getInputConfig(path.resolve(configFile || 'config.json'), envOptions)
-    const stackConfigFile = path.resolve(config.OutputFolder, envName || process.env.DEPLOYMENT_ENV, 'StackConfig.json')
-    const stackList = fs.existsSync(stackConfigFile) ? JSON.parse(fs.readFileSync(stackConfigFile)) : {}
-    let tableData = []
-    if (Object.keys(stackList).length > 0) {
-        console.log(`\n - ${prompt ? prompt : `Listing installed components for ${CNOTIF}${envName || process.env.DEPLOYMENT_ENV}${CDONE} environment \n`}`)
-        Object.keys(stackList).map((stackName, idx) => {
-            tableData.push({
-                Index: idx + 1,
-                Name: stackName,
-                Type: stackList[stackName].StackId ? "CF-Stack" : "Function",
-                Region: stackList[stackName].Region,
-                ResourceId: (stackList[stackName].StackId || stackList[stackName].FunctionArn).truncate(30),
-                Status: "INSTALLED",
-                LastUpdate: utilities.formatTimeSinceAgo(stackList[stackName].LastUpdate || Date.now())
-            })
-        })
-        utilities.printTableWithJSON(tableData)
-    } else {
-        console.log(`\n - Listing installed components for ${CNOTIF}${envName || process.env.DEPLOYMENT_ENV}${CDONE} environment: (empty) \n`)
-    }
-    return Promise.resolve(tableData)
-}
-
-const getDirectories = source =>
-    fs.readdirSync(source, { withFileTypes: true })
-        .filter(dirent => dirent.isDirectory())
-        .map(dirent => dirent.name)
-
-const showTemplates = (templateFolderName, promptDescription) => {
-    console.log(promptDescription)
-    getDirectories(path.join(__dirname, templateFolderName)).map((template, idx) => {
-        const descFile = path.join(__dirname, templateFolderName, template, "description.txt")
-        if (fs.existsSync(descFile)) {
-            console.log(` ${idx + 1}.`, `${CNOTIF}${template}${CRESET} - ${fs.readFileSync(descFile)}`)
-        } else {
-            console.log(` ${idx + 1}.`, `${template} - No information found in description.txt.`)
-        }
-    })
-}
-
-const showAvailableStacks = (options, promptDescription) => {
-    const { regionName, configFile, envFile, envName } = options
-    const envFilePath = path.resolve(envFile || '.env')
-    if (fs.existsSync(envFilePath)) {
-        require('dotenv').config({ path: envFilePath })
-    }
-    const envOptions = { DEPLOYMENT_ENV: envName, DEPLOYMENT_REGION: regionName }
-    var config = simplify.getInputConfig(path.resolve(configFile || 'config.json'), envOptions)
-    const stackConfigFile = path.resolve(config.OutputFolder, envName || process.env.DEPLOYMENT_ENV, 'StackConfig.json')
-    const stackList = fs.existsSync(stackConfigFile) ? JSON.parse(fs.readFileSync(stackConfigFile)) : {}
-    let stackStatus = "AVAILABLE"
-    let stackUpdate = "         "
-    let stackType = ""
-    let indexOfTemplate = 0
-    let tableStackData = []
-    console.log(`\n - ${promptDescription}\n`)
-    getDirectories(path.resolve('.')).map((template) => {
-        const excludeFolders = [".simplify", ".git", ".github", "dist", "node_modules", "output"].indexOf(template) == -1 ? false : true
-        if (!excludeFolders && !template.startsWith('.') && !template.startsWith('_')) {
-            const descFile = path.resolve('.', template, "description.txt")
-            const hasTemplateFile = fs.existsSync(path.resolve(template, "template.yaml"))
-            let description = `No information found in description.txt. This may not be a compatible package.`
-            const installedStack = Object.keys(stackList).indexOf(template) >= 0 ? true : false
-            if (fs.existsSync(descFile)) {
-                description = `${fs.readFileSync(descFile)}`
-                stackStatus = installedStack ? "INSTALLED" : "AVAILABLE"
-                stackUpdate = installedStack ? utilities.formatTimeSinceAgo(stackList[template].LastUpdate) : ""
-                stackType = installedStack ? stackList[template].Type : hasTemplateFile ? "CF-Stack" : "Function"
+                }).catch(err => reject(err))
             } else {
-                stackStatus = "----*----"
-                stackUpdate = "         "
-                stackType = hasTemplateFile ? "CF-Stack" : "Unknown"
-            }
-            tableStackData.push({
-                Index: `${indexOfTemplate + 1}`,
-                Name: `${template}`,
-                Type: stackType,
-                Description: `${description.replace(/(\r\n|\n|\r)/gm, "").trim().truncate(30)}`,
-                Status: stackStatus,
-                LastUpdate: stackUpdate
-            })
-            indexOfTemplate++
-        }
-    })
-    utilities.printTableWithJSON(tableStackData)
-}
-
-showBoxBanner()
-
-var argv = require('yargs').usage('simplify-cli command [options]')
-    .string('help').describe('help', 'display help for a specific command')
-    .string('name').describe('name', getOptionDesc('create', 'name'))
-    .string('template').describe('template', getOptionDesc('create', 'template'))
-    .string('stack').describe('stack', getOptionDesc('deploy', 'stack'))
-    .string('function').describe('function', getOptionDesc('deploy', 'function'))
-    .string('location').describe('location', getOptionDesc('deploy', 'location')).default('location', '')
-    .string('parameters').describe('parameters', getOptionDesc('deploy', 'parameters')).default('parameters', 'parameters.json')
-    .string('config').describe('config', 'function configuration').default('config', 'config.json')
-    .string('policy').describe('policy', 'function policy to attach').default('policy', 'policy.json')
-    .string('role').describe('role', 'function policy to attach').default('role', 'role.json')
-    .string('source').describe('source', 'function source to deploy').default('source', 'src')
-    .string('env').describe('env', 'environment name')
-    .string('region').describe('region', getOptionDesc('deploy', 'region'))
-    .string('dotenv').describe('dotenv', getOptionDesc('deploy', 'dotenv')).default('dotenv', '.env')
-    .boolean('update').describe('update', getOptionDesc('deploy', 'update')).default('update', false)
-    .boolean('publish').describe('publish', getOptionDesc('deploy', 'publish')).default('publish', false)
-    .boolean('layer').describe('layer', getOptionDesc('deploy', 'layer')).default('layer', false)
-    .boolean('headless').describe('headless', getOptionDesc('deploy', 'headless')).default('headless', false)
-    .demandCommand(0).argv;
-
-var cmdOPS = (argv._[0] || 'list').toUpperCase()
-var optCMD = (argv._.length > 1 ? argv._[1] : undefined)
-var cmdArg = argv['stack'] || argv['function'] || optCMD
-var cmdType = cmdArg ? fs.existsSync(path.resolve(argv.location, cmdArg, "template.yaml")) ? "CF-Stack" : "Function" : undefined
-cmdType = argv['function'] ? "Function" : argv['stack'] ? "CF-Stack" : cmdType
-
-if (argv._.length == 0) {
-    yargs.showHelp()
-    console.log(`\n`, ` * ${CBRIGHT}Supported command list${CRESET}:`, '\n')
-    AVAILABLE_COMMANDS.map((cmd, idx) => {
-        console.log(`\t- ${CPROMPT}${cmd.name.toLowerCase()}${CRESET} : ${cmd.desc}`)
-    })
-    console.log(`\n`)
-    process.exit(0)
-} else {
-    if (typeof argv['help'] !== 'undefined') {
-        console.log(`\n`, ` * ${CBRIGHT}Supported options${CRESET}:`, '\n')
-        const cmdResult = AVAILABLE_COMMANDS.find(cmd => cmdOPS.toLowerCase() == cmd.name)
-        if (cmdResult) {
-            cmdResult.options.map((cmd, idx) => {
-                console.log(`\t${CPROMPT}--${cmd.name.toLowerCase()}${CRESET} : ${cmd.desc}`)
-            })
-        }
-        console.log(`\n`)
-        process.exit(0)
-    }
-}
-const showSubscriptionPlan = function (userSession) {
-    currentSubscription = (userSession.getIdToken().payload[`subscription`] || 'Basic')
-    const currentVersion = PLAN_DEFINITIONS[currentSubscription.toUpperCase()].Version || 'Community'
-    console.log(`\n`, ` * ${CPROMPT}Welcome back${CRESET} : ${userSession.getIdToken().payload[`name`]}`)
-    console.log(`  * ${CPROMPT}Subscription${CRESET} : ${CDONE}${currentSubscription}${CRESET} Plan (${currentVersion} Version)`)
-    console.log(`  * ${CPROMPT}Upgrade plan${CRESET} : simplify-cli upgrade`)
-    return Promise.resolve()
-}
-
-const processCLI = function (cmdRun, session) {
-    if (cmdRun === "DEPLOY") {
-        if (cmdArg !== undefined) {
-            return (cmdType === "Function" ? deployFunction : deployStack)({
-                regionName: argv.region,
-                functionName: cmdArg,
-                configFile: argv.config,
-                configStackName: cmdArg,
-                configStackFolder: argv.location,
-                envName: argv.env,
-                envFile: argv['dotenv'],
-                dataFile: argv.parameters,
-                roleFile: argv.role,
-                policyFile: argv.policy,
-                sourceDir: argv.source,
-                forceUpdate: argv.update,
-                asFunctionLayer: argv.layer,
-                publishNewVersion: argv.publish,
-                headless: argv.headless
-            })
-        } else {
-            return showAvailableStacks({
-                regionName: argv.region,
-                configFile: argv.config,
-                envName: argv.env,
-                envFile: argv['dotenv']
-            }, `Available ${CPROMPT}stack${CRESET} and ${CPROMPT}function${CRESET} to deploy with command: simplify-cli deploy [--stack or --function] name`)
-        }
-
-    } else if (cmdRun === "DESTROY") {
-        if (cmdArg !== undefined) {
-            return (cmdType === "Function" ? destroyFunction({
-                regionName: argv.region,
-                configFile: argv.config,
-                envName: argv.env,
-                envFile: argv['dotenv'],
-                functionName: cmdArg,
-                withFunctionLayer: argv.layer
-            }) : destroyStack({
-                regionName: argv.region,
-                configFile: argv.config,
-                envName: argv.env,
-                envFile: argv['dotenv'],
-                configStackFolder: argv.location,
-                configStackName: cmdArg
-            }))
-        } else {
-            return printListingDialog({
-                regionName: argv.region,
-                configFile: argv.config,
-                envName: argv.env,
-                envFile: argv['dotenv']
-            }, `Select a ${CPROMPT}stack${CRESET} or ${CPROMPT}function${CRESET} to destroy with command: simplify-cli destroy [--stack or --function] name`)
-        }
-    } else if (cmdRun === "LOGOUT") {
-        userSignOut(session.getIdToken().payload['cognito:username'])
-        console.log(`\n * Signed out, Your session has been wiped successfully. \n`)
-        return Promise.resolve()
-    } else if (cmdRun === "LOGIN") {
-        const username = readlineSync.questionEMail(` - ${CPROMPT}Your identity${CRESET} : `, { limitMessage: " * Your login email is invalid." })
-        const password = readlineSync.question(` - ${CPROMPT}Your password${CRESET} : `, { hideEchoBack: true })
-        return new Promise(function (resolve) {
-            analytics.updateEvent("_userauth.sign_in", undefined, undefined, true)
-            authenticate(username, password).then(function (userSession) {
-                showSubscriptionPlan(userSession)
-                resolve()
-            }).catch(error => {
-                analytics.updateEvent("_userauth.auth_fail", undefined, undefined, false)
-                console.error(error) && resolve()
-            })
-        })
-    } else if (cmdRun === "UPGRADE") {
-        const subscriptionPlan = readlineSync.keyInSelect([
-            `BASIC - ${PLAN_DEFINITIONS["BASIC"].Description}.`,
-            `PREMIUM - ${PLAN_DEFINITIONS["PREMIUM"].Description}.`],
-            ` - You are about to change your subscription from ${CPROMPT}${currentSubscription.toUpperCase()}${CRESET} plan to: `,
-            { cancel: `SKIP - Retain my current subscription as the ${currentSubscription.toUpperCase()} one.` })
-        if (subscriptionPlan >= 0) {
-            const newSubscription = Object.keys(PLAN_DEFINITIONS).find(x => PLAN_DEFINITIONS[x].Index == (subscriptionPlan))
-            console.log(`\n * You have selected to pay ${PLAN_DEFINITIONS[newSubscription].Subscription}$ for ${newSubscription} version!`)
-            console.log(` * Unfortunately, this feature is not available at the moment. \n`)
-        }
-        return Promise.resolve()
-    } else if (cmdRun === "REGISTER") {
-        const fullname = readlineSync.question(` - ${CPROMPT}What is your name${CRESET} : `, { limitMessage: " * Your name is invalid." })
-        const username = readlineSync.questionEMail(` - ${CPROMPT}Registered email${CRESET} : `, { limitMessage: " * Your registered email is invalid." })
-        const password = readlineSync.questionNewPassword(` - ${CPROMPT}New password${CRESET} : `, {
-            hideEchoBack: true,
-            charlist: '$<!-~>',
-            min: 8, max: 24,
-            confirmMessage: ` - ${CPROMPT}Confirm password${CRESET} : `
-        })
-        analytics.updateEvent("_userauth.sign_up", undefined, undefined, true)
-        registerUser(fullname, username, password).then(function (user) {
-            const activation = readlineSync.question(` - ${CPROMPT}Activation code${CRESET} : `, { hideEchoBack: false })
-            confirmRegistration(user.username, activation).then(function (resultCode) {
-                if (resultCode == 'SUCCESS') {
-                    console.log(`${CPROMPT}Registration is done${CRESET}. Please login to continue.`)
+                if (err.code == 'BucketAlreadyExists') {
+                    consoleWithMessage(`${opName}-CreateBucket`, `${CERROR}(ERROR)${CRESET} ${err} *** It has been created by another AWS Account worldwide!`)
                 } else {
-                    console.log(`${CPROMPT}Activation code is invalid${CRESET}. Please try again.`)
-                    const activation = readlineSync.question(` - ${CPROMPT}Activation code${CRESET} : `, { hideEchoBack: false })
-                    confirmRegistration(user.username, activation).then(function (resultCode) {
-                        if (resultCode == 'SUCCESS') {
-                            console.log(`${CPROMPT}Registration is done${CRESET}. Please login to continue.`)
-                        } else {
-                            console.log(`${CPROMPT}Activation code is invalid${CRESET}. Your account is not registered.`)
-                        }
-                    }).catch(error => console.error(error))
+                    consoleWithMessage(`${opName}-CreateBucket`, `${CERROR}(ERROR)${CRESET} ${err}`)
                 }
-            }).catch(error => console.error(error))
-        }).catch(error => console.error(error))
-    } else if (cmdRun === "LIST") {
-        return printListingDialog({
-            regionName: argv.region,
-            configFile: argv.config,
-            envName: argv.env,
-            envFile: argv['dotenv']
-        }, `Deployed ${CPROMPT}stacks${CRESET} and ${CPROMPT}functions${CRESET} managed by Simplify CLI:`)
-    } else if (cmdRun === "INIT") {
-        function verifyAccountAccess(options, callback, errorHandler) {
-            const S3_OPTIONS = (options.DEPLOYMENT_REGION !== 'us-east-1' ? `--create-bucket-configuration LocationConstraint=${options.DEPLOYMENT_REGION} ` : '') + `--profile ${options.DEPLOYMENT_PROFILE} --region ${options.DEPLOYMENT_REGION}`
-            exec(`aws s3api create-bucket --bucket ${options.DEPLOYMENT_BUCKET}-${options.DEPLOYMENT_REGION} ${S3_OPTIONS}`, (err, stdout, stderr) => {
-                if (!err) {
-                    if (stderr) {
-                        errorHandler && errorHandler({ message: `The ${options.DEPLOYMENT_PROFILE} doesn't have s3:PutObject permission to ${options.DEPLOYMENT_BUCKET}-${options.DEPLOYMENT_REGION} bucket` })
+                reject(err)
+            }
+        })
+    })
+}
+
+const uploadLocalFile = function (options) {
+    var { adaptor, opName, bucketName, bucketKey, inputLocalFile } = options
+    opName = opName || `uploadLocalFile`
+    var uploadFileName = path.basename(inputLocalFile)
+    return new Promise(function (resolve, reject) {
+        try {
+            consoleWithMessage(`${opName}-ReadFile`, `${inputLocalFile.truncate(50)}`)
+            fs.readFile(inputLocalFile, function (err, data) {
+                if (err) throw err;
+                adaptor.createBucket(function (err) {
+                    var params = {
+                        Key: bucketKey ? (bucketKey + '/' + uploadFileName) : uploadFileName,
+                        Body: data
+                    };
+                    if (bucketName) {
+                        params.Bucket = bucketName
+                    }
+                    if (!err || (err.code == 'BucketAlreadyOwnedByYou')) {
+                        consoleWithMessage(`\t Uploading-InProgress`, `\t${0} %`);
+                        adaptor.upload(params).on('httpUploadProgress', event => {
+                            consoleWithMessage(`\t Uploading-InProgress`, `\t${parseInt(100 * event.loaded / event.total)} %`);
+                        }).send((err, data) => {
+                            if (err) {
+                                consoleWithMessage(`${opName}-FileUpload`, `${CERROR}(ERROR)${CRESET} ${err}`)
+                                reject(err)
+                            } else {
+                                consoleWithMessage(`${opName}-FileUpload`, `${data.Location.truncate(50)}`)
+                                resolve({ ...data })
+                            }
+                        })
                     } else {
-                        callback && callback(options)
+                        consoleWithMessage(`${opName}-CreateBucket`, `${CERROR}(ERROR)${CRESET} ${err}`)
+                        reject(err)
                     }
-                } else {
-                    errorHandler && errorHandler(err)
-                }
-            })
-        }
-        function setupAccountId(options, callback) {
-            const REGIONS = ["us-east-2", "us-east-1", "us-west-1", "eu-west-1", "eu-central-1", "eu-west-3", "ap-northeast-1", "ap-southeast-2", "ap-southeast-1"]
-            const regionIndex = readlineSync.keyInSelect([
-                "us-east-2 (N. Virginia)", "us-east-1 (Ohio)", "us-west-1 (N. California)",
-                "eu-west-1 (Ireland)", "eu-central-1 (Frankfurt)", "eu-west-3 (Paris)",
-                "ap-northeast-1 (Tokyo)", "ap-southeast-2 (Sydney)", "ap-southeast-1 (Singapore)"
-            ], ` - ${CPROMPT}Choose your AWS Region?${CRESET} `, { cancel: `${CBRIGHT}others${CRESET} (Enter manually)` })
-            if (regionIndex == -1) {
-                options.DEPLOYMENT_REGION = readlineSync.question(` - ${CPROMPT}What is your AWS Region?${CRESET} (${process.env.DEPLOYMENT_REGION || 'us-east-1'}) `) || `${process.env.DEPLOYMENT_REGION || 'us-east-1'}`
-            } else {
-                options.DEPLOYMENT_REGION = REGIONS[regionIndex]
-                console.log(`\n *`, `Your have just selected the ${CBRIGHT}${options.DEPLOYMENT_REGION}${CRESET} region \n`)
-            }
-            simplify.consoleWithMessage(opName, "Inspect AWS AccountID...")
-            exec(`aws sts get-caller-identity --profile ${options.DEPLOYMENT_PROFILE} --query "Account" --output=text`, (err, stdout, stderr) => {
-                if (!err) {
-                    options.DEPLOYMENT_ACCOUNT = readlineSync.question(` - ${CPROMPT}Confirm your AWS AccountId?${CRESET} (${stdout.trim()}) `) || `${stdout.trim()}`
-                } else {
-                    options.DEPLOYMENT_ACCOUNT = readlineSync.question(` - ${CPROMPT}What is your AWS AccountId?${CRESET} (${process.env.DEPLOYMENT_ACCOUNT || 'Enter a valid AccountId'}) `) || `${process.env.DEPLOYMENT_ACCOUNT || ''}`
-                }
-                verifyAccountAccess(options, callback, function (error) {
-                    simplify.consoleWithErrors(`${opName}-INIT`, `${error}`)
                 })
             })
+        } catch (err) {
+            reject(err)
         }
-        function setupProfile(options, callback) {
-            console.log(`\n See https://docs.aws.amazon.com/general/latest/gr/aws-sec-cred-types.html#access-keys-and-secret-access-keys \n`)
-            options.DEPLOYMENT_PROFILE = readlineSync.question(` - ${CPROMPT}Choose a name for your AWS Profile${CRESET} (${process.env.PROJECT_NAME || 'default'}) `) || `${process.env.PROJECT_NAME || 'default'}`
-            const awsAccessKeyID = readlineSync.question(` - ${CPROMPT}Enter your AWS Access KeyID${CRESET} :`)
-            const awsSecretKey = readlineSync.question(` - ${CPROMPT}Enter your AWS Secreet Key${CRESET} :`, { hideEchoBack: true })
-            const awsRoleARN = readlineSync.question(` - ${CPROMPT}Enter your Assume Role ARN${CRESET} (None):`)
-            const awsRoleExtId = awsRoleARN ? readlineSync.question(` - ${CPROMPT}Enter your Assume Role External ID${CRESET} (None):`) : undefined
-            exec(`aws configure set aws_access_key_id ${awsAccessKeyID} --profile ${options.DEPLOYMENT_PROFILE}`, (err, stdout, stderr) => {
-                if (!err) {
-                    exec(`aws configure set aws_secret_access_key ${awsSecretKey} --profile ${options.DEPLOYMENT_PROFILE}`, (err, stdout, stderr) => {
-                        if (!err) {
-                            console.log(`\n *`, `Your have just setup the ${CBRIGHT}${options.DEPLOYMENT_PROFILE}${CRESET} profile \n`)
-                            if (awsRoleARN) {
-                                exec(`aws configure set role_arn ${awsRoleARN} --profile ${options.DEPLOYMENT_PROFILE}`, (err, stdout, stderr) => {
-                                    if (!err) {
-                                        if (awsRoleExtId) {
-                                            exec(`aws configure set external_id ${awsRoleExtId} --profile ${options.DEPLOYMENT_PROFILE}`, (err, stdout, stderr) => {
-                                                if (!err) {
-                                                    callback && callback(options)
-                                                } else {
-                                                    console.error(`${CERROR}${err}${CRESET}`)
-                                                }
-                                            })
-                                        } else {
-                                            callback && callback(options)
-                                        }
-                                    } else {
-                                        console.error(`${CERROR}${err}${CRESET}`)
-                                    }
-                                })
-                            } else {
-                                callback && callback(options)
-                            }
+    })
+}
+
+const uploadDirectoryAsZip = function (options) {
+    var { adaptor, opName, bucketKey, inputDirectory, outputFilePath, hashInfo, fileName } = options
+    opName = opName || `uploadDirectoryAsZip`
+    var outputZippedFile = `${fileName || utilities.getDateToday()}.zip`
+    var outputZippedFilePath = path.join(outputFilePath, outputZippedFile)
+    return new Promise(function (resolve, reject) {
+        try {
+            const zip = new AdmZip();
+            if (!fs.existsSync(outputFilePath)) {
+                fs.mkdirSync(outputFilePath, { recursive: true })
+            }
+            zip.addLocalFolder(inputDirectory)
+            zip.writeZip(outputZippedFilePath)
+            consoleWithMessage(`${opName}-ZipFile`, `${inputDirectory.truncate(30)} > ${outputZippedFilePath.truncate(30)}`)
+            const zipBuffer = Buffer.concat(zip.getEntries().map(e => {
+                return e.getData()
+            }))
+            const sha256Hex = crypto.createHash('sha256').update(zipBuffer).digest('hex')
+            if (sha256Hex === hashInfo.FileSha256) {
+                resolve({ ...hashInfo, isHashIdentical: true })
+            } else {
+                uploadLocalFile({ adaptor, opName, bucketKey, inputLocalFile: outputZippedFilePath }).then(function (data) {
+                    resolve({ ...data, FileSha256: sha256Hex, isHashIdentical: false })
+                }).catch(function (err) { reject(err) })
+            }
+        } catch (err) {
+            consoleWithMessage(`${opName}-ZipFile`, `${CERROR}(ERROR)${CRESET} ${err}`);
+            reject(err)
+        }
+    })
+}
+
+const createOrUpdateFunction = function (options) {
+    var { adaptor, opName, bucketName, bucketKey, functionConfig, creationTimeout } = options
+    opName = opName || `createOrUpdateFunction`
+    creationTimeout = creationTimeout || 10
+    return new Promise(function (resolve, reject) {
+        var params = {
+            Code: {
+                S3Bucket: bucketName,
+                S3Key: bucketKey
+            },
+            ...functionConfig
+        };
+        consoleWithMessage(`${opName}-CreateFunction`, `${functionConfig.FunctionName.truncate(50)}`);
+        adaptor.createFunction(params, function (err, data) {
+            if (err) {
+                if (err.code === 'ResourceConflictException') {
+                    consoleWithMessage(`${opName}-UpdateFunctionConfig`, `${functionConfig.FunctionName.truncate(50)}`, err);
+                    const unusedProps = ["Code", "Publish", "Tags"]
+                    unusedProps.forEach(function (k) { delete params[k] })
+                    adaptor.updateFunctionConfiguration(params, function (err) {
+                        if (err) {
+                            reject(err)
                         } else {
-                            console.error(`${CERROR}${err}${CRESET}`)
+                            consoleWithMessage(`${opName}-UpdateFunctionConfig`, `${CDONE}(OK)${CRESET}`);
+                            adaptor.updateFunctionCode({
+                                FunctionName: functionConfig.FunctionName,
+                                S3Bucket: bucketName,
+                                S3Key: bucketKey
+                            }, function (err, data) {
+                                if (err) {
+                                    consoleWithMessage(`${opName}-UpdateFunctionCode`, `${CERROR}(ERROR)${CRESET} ${err}`);
+                                    reject(err)
+                                } else {
+                                    consoleWithMessage(`${opName}-UpdateFunctionCode`, `${CDONE}(OK)${CRESET}`);
+                                    resolve(data)
+                                }
+                            })
                         }
-                    })
+                    });
                 } else {
-                    console.error(`${CERROR}${err}${CRESET}`)
-                }
-            })
-        }
-        simplify.consoleWithMessage(opName, "Checking AWS-CLI/2...")
-        exec(`aws --version`, (err, stdout, stderr) => {
-            if (err || stdout.startsWith("aws-cli/1.")) {
-                if (stdout.startsWith("aws-cli/1.")) {
-                    console.log(`\n *`, `Need an upgrade to aws-cli/2 library. Refer: https://docs.aws.amazon.com/cli/latest/userguide/install-cliv2.html \n`)
-                } else {
-                    console.log(`\n *`, `Missing aws-cli/2 installed in your computer. Refer: https://docs.aws.amazon.com/cli/latest/userguide/install-cliv2.html \n`)
+                    var index = 0
+                    function retryCreateFunction() {
+                        consoleWithMessage(`${opName}-CreateFunction`, `${functionConfig.FunctionName.truncate(50)}`);
+                        adaptor.createFunction(params, function (err, data) {
+                            if (++index > creationTimeout || !err) {
+                                index > creationTimeout ? reject(`Create Function Timeout with (Error): ${err}`) : resolve({ ...data })
+                            } else {
+                                setTimeout(() => retryCreateFunction(), 1000)
+                            }
+                        })
+                    }
+                    retryCreateFunction()
                 }
             } else {
-                let initOptions = {
-                    PROJECT_NAME: readlineSync.question(` - ${CPROMPT}Choose a Project name?${CRESET} (${process.env.PROJECT_NAME || 'starwars'}) `) || `${process.env.PROJECT_NAME || 'starwars'}`,
-                    DEPLOYMENT_BUCKET: readlineSync.question(` - ${CPROMPT}Choose an S3 Bucket name?${CRESET} (${process.env.DEPLOYMENT_BUCKET || 'starwars-0920'}) `) || `${process.env.DEPLOYMENT_BUCKET || 'starwars-0920'}`,
-                    DEPLOYMENT_ENV: readlineSync.question(` - ${CPROMPT}Choose an Environment?${CRESET} (${process.env.DEPLOYMENT_ENV || 'demo'}) `) || `${process.env.DEPLOYMENT_ENV || 'demo'}`
+                consoleWithMessage(`${opName}-CreateFunction`, `${CDONE}(OK)${CRESET}`);
+                resolve(data)
+            }
+        })
+    })
+}
+
+const updateFunctionConfiguration = function (options) {
+    var { adaptor, opName, functionConfig } = options
+    opName = opName || `updateFunctionConfiguration`
+    return new Promise(function (resolve, reject) {
+        const unusedProps = ["Code", "Publish", "Tags"]
+        unusedProps.forEach(function (k) { delete functionConfig[k] })
+        adaptor.updateFunctionConfiguration({ ...functionConfig }, function (err, data) {
+            if (err) {
+                consoleWithMessage(`${opName}-UpdateFunctionConfig`, `${CERROR}(ERROR)${CRESET} ${err}`);
+                reject(err)
+            } else {
+                consoleWithMessage(`${opName}-UpdateFunctionConfig`, `${CDONE}(OK)${CRESET}`);
+                resolve(data)
+            }
+        })
+    })
+}
+
+const getFunctionConfiguration = function (options) {
+    var { adaptor, opName, functionConfig } = options
+    opName = opName || `getFunctionConfiguration`
+    return new Promise(function (resolve, reject) {
+        adaptor.getFunctionConfiguration({
+            FunctionName: functionConfig.FunctionName,
+            Qualifier: functionConfig.Qualifier
+        }, function (err, functionData) {
+            err ? reject(err) : resolve(functionData)
+        })
+    })
+}
+
+const publishFunctionVersion = function (options) {
+    var { adaptor, opName, functionConfig, functionMeta } = options
+    opName = opName || `publishFunctionVersion`
+    return new Promise(function (resolve, reject) {
+        adaptor.publishVersion({
+            FunctionName: functionConfig.FunctionName,
+            CodeSha256: functionMeta.data.CodeSha256,
+            RevisionId: functionMeta.data.RevisionId
+        }, function (err, functionVersion) {
+            err ? reject(err) : resolve(functionVersion)
+        })
+    })
+}
+
+const createFunctionLayerVersion = function (options) {
+    var { adaptor, opName, bucketName, bucketKey, functionConfig, layerConfig } = options
+    opName = opName || `createFunctionLayerVersion`
+    return new Promise(function (resolve, reject) {
+        var params = {
+            Content: {
+                S3Bucket: bucketName,
+                S3Key: bucketKey
+            },
+            ...layerConfig
+        };
+        consoleWithMessage(`${opName}-CreateFunctionLayer`, `${layerConfig.LayerName}`);
+        adaptor.publishLayerVersion(params, function (err, data) {
+            if (err) {
+                consoleWithMessage(`${opName}-CreateLayerVersion`, `${CERROR}(ERROR)${CRESET} ${err}`);
+                reject(err)
+            } else {
+                if (!functionConfig.Layers) functionConfig.Layers = []
+                let layerIndex = -1
+                let existedLayerArn = functionConfig.Layers.find(function (layerArn, index) {
+                    layerIndex = index
+                    const multiPartsLayerArn = layerArn.split(':')
+                    return (multiPartsLayerArn.length > 6 && multiPartsLayerArn[6] === layerConfig.LayerName)
+                })
+                if (typeof existedLayerArn !== 'undefined') {
+                    functionConfig.Layers[layerIndex] = data.LayerVersionArn
+                } else {
+                    functionConfig.Layers.push(data.LayerVersionArn)
                 }
-                simplify.consoleWithMessage(opName, "Checking Installed Profiles...")
-                exec('aws configure list-profiles', (err, stdout, stderr) => {
-                    if (err) {
-                        simplify.consoleWithErrors(`${opName}-INIT`, `${err}`)
-                    } else {
-                        const profileItems = stdout.split('\n').filter(x => x)
-                        const selectedIndex = initOptions.DEPLOYMENT_PROFILE = readlineSync.keyInSelect(profileItems,
-                            ` - ${CPROMPT}What is your AWS Profile?${CRESET}`,
-                            { cancel: `I want to setup a new AWS Profile` })
-                        if (selectedIndex == -1) {
-                            setupProfile(initOptions, function (options) {
-                                setupAccountId(options, function (options) {
-                                    createStackOnInit(options, argv.location, process.env)
-                                    console.log(`\n *`, `Type '--help' with CREATE to find more: simplify-cli create --help \n`)
-                                })
-                            })
+                data.Layers = functionConfig.Layers
+                let listFunctionNames = []
+                let indexFunctionName = 0
+                if (Array.isArray(functionConfig.FunctionName)) {
+                    listFunctionNames = functionConfig.FunctionName
+                } else {
+                    listFunctionNames.push(functionConfig.FunctionName)
+                }
+                listFunctionNames.map(functionName => {
+                    adaptor.updateFunctionConfiguration({
+                        FunctionName: functionName,
+                        Layers: functionConfig.Layers,
+                        Environment: functionConfig.Environment
+                    }, function (err, _) {
+                        if (err) {
+                            consoleWithMessage(`${opName}-UpdateFunctionConfig`, `${functionName} ${CERROR}(ERROR)${CRESET} ${err}`);
                         } else {
-                            initOptions.DEPLOYMENT_PROFILE = profileItems[selectedIndex]
-                            console.log(`\n *`, `Your have just selected the ${CBRIGHT}${initOptions.DEPLOYMENT_PROFILE}${CRESET} profile \n`)
-                            setupAccountId(initOptions, function (options) {
-                                createStackOnInit(options, argv.location, process.env)
-                                console.log(`\n *`, `Type '--help' with CREATE to find more: simplify-cli create --help \n`)
-                            })
+                            consoleWithMessage(`${opName}-UpdateFunctionConfig`, `${functionName} ${CDONE}(OK)${CRESET}`);
                         }
+                        if (++indexFunctionName >= listFunctionNames.length) {
+                            err ? reject(err) : resolve(data)
+                        }
+                    })
+                })
+            }
+        });
+    })
+}
+
+const getFunctionMetaInfos = function (options) {
+    var { adaptor, logger, opName, functionConfig, silentIs } = options
+    opName = opName || `getFunctionMetaInfos`
+    return new Promise(function (resolve, reject) {
+        var params = {
+            FunctionName: functionConfig.FunctionName,
+            Qualifier: functionConfig.Qualifier
+        };
+        consoleWithMessage(`${opName}-GetFunction`, `${functionConfig.FunctionName.truncate(50)}`, silentIs);
+        adaptor.getFunction(params, function (err, data) {
+            if (err) {
+                consoleWithMessage(`${opName}-GetFunction`, `${CERROR}(ERROR)${CRESET} ${err}`, silentIs);
+                reject(err)
+            } else {
+                let layerIndex = 0
+                let functionData = { ...data, LayerInfos: [] }
+                functionData.Configuration.Layers = functionData.Configuration.Layers || []
+                consoleWithMessage(`${opName}-GetFunctionLayers`, `${functionConfig.FunctionName.truncate(50)}`, silentIs);
+                if (typeof logger !== 'undefined') {
+                    logger.describeLogGroups({ logGroupNamePrefix: `/aws/lambda/${functionConfig.FunctionName}` }, function (err, data) {
+                        if (err) reject(err)
+                        else {
+                            functionData.LogGroup = data.logGroups.find(g => g.logGroupName === `/aws/lambda/${functionConfig.FunctionName}`)
+                            if (functionData.Configuration.Layers.length > 0) {
+                                getLayerInfoRecusive(layerIndex)
+                            } else {
+                                resolve(functionData)
+                            }
+                        }
+                    });
+                } else {
+                    if (functionData.Configuration.Layers.length > 0) {
+                        getLayerInfoRecusive(layerIndex)
+                    } else {
+                        resolve(functionData)
+                    }
+                }
+                function getLayerInfoRecusive(index) {
+                    const layerArnWithVersion = functionData.Configuration.Layers[index].Arn.split(':')
+                    const layerOnlyARN = layerArnWithVersion.splice(0, layerArnWithVersion.length - 1).join(':')
+                    const versionNumber = layerArnWithVersion.join('')
+                    adaptor.getLayerVersion({
+                        LayerName: layerOnlyARN,
+                        VersionNumber: versionNumber
+                    }, function (err, layerMeta) {
+                        if (err) {
+                            reject(err)
+                        } else {
+                            if (++index < functionData.Configuration.Layers.length) {
+                                functionData.LayerInfos.push(layerMeta)
+                                getLayerInfoRecusive(index)
+                            } else {
+                                functionData.LayerInfos.push(layerMeta)
+                                resolve(functionData)
+                            }
+                        }
+                    });
+                }
+            }
+        });
+    })
+}
+
+const updateAPIGatewayDeployment = function (options) {
+    var { adaptor, opName, apiConfig } = options
+    opName = opName || `updateAPIGatewayDeployment`
+    return new Promise(function (resolve, reject) {
+        consoleWithMessage(`${opName}-CreateDeployment`, `${apiConfig.GatewayId}`);
+        adaptor.createDeployment({
+            stageName: apiConfig.StageName,
+            restApiId: apiConfig.GatewayId
+        }, function (err, data) {
+            if (err) {
+                consoleWithMessage(`${opName}-CreateDeployment`, `${CERROR}(ERROR)${CRESET} ${err}`);
+                reject(err)
+            } else {
+                adaptor.updateStage({
+                    stageName: apiConfig.StageName,
+                    restApiId: apiConfig.GatewayId,
+                    patchOperations: [{ op: 'replace', path: '/deploymentId', value: data.id }]
+                }, function (err, data) {
+                    if (err) {
+                        consoleWithMessage(`${opName}-UpdateDeploymentStage`, `${CERROR}(ERROR)${CRESET} ${err}`);
+                        reject(err)
+                    } else {
+                        consoleWithMessage(`${opName}-UpdateDeploymentStage`, `${CDONE}(OK)${CRESET}`);
+                        resolve(data)
                     }
                 });
             }
         })
-        return Promise.resolve()
-    } else if (cmdRun === "CREATE") {
-        const templateName = argv.template || optCMD
-        if (typeof templateName === "undefined") {
-            console.log(`\nMissing a Template: simplify-cli create [--template=]Template \n`)
-            showTemplates("basic/functions", `\nCreate a function template: simplify-cli create [--template=]ShowLog | Detector\n`)
-            showTemplates("basic/stacks", `\nOr create a deployment stack: simplify-cli create [--template=]CloudFront | CognitoUser...\n`)
-            console.log(`\n *`, `Or fetch from YAML: simplify-cli create [--template=]https://github.com/awslabs/...template.yml \n`)
-            return Promise.resolve()
-        } else {
-            return createStackOnInit(templateName, argv.location, process.env)
-        }
-    } else {
-        console.log(`\n * Command ${cmdRun} is not supported. Try with these commands: create | list | login | deploy | destroy \n`)
-        return Promise.resolve()
-    }
+    })
 }
 
-const detectNewVersion = function () {
-    fetch('https://raw.githubusercontent.com/simplify-framework/cli/master/package.json').then(response => response.json()).then(json => {
-        if (json.version !== require('./package').version) {
-            console.log(`\n * New version ${json.version} is detected! npm install -g simplify-cli\n`)
+const createOrUpdateStackOnComplete = function (options) {
+    return new Promise(function (resolve, reject) {
+        var { adaptor, opName, stackName } = options
+        const internvalTime = process.env.SIMPLIFY_STACK_INTERVAL || 5000
+        var poolingTimeout = process.env.SIMPLIFY_STACK_TIMEOUT || 360
+        const timeoutInMinutes = poolingTimeout * internvalTime
+        opName = opName || `createOrUpdateStackOnComplete`
+        createOrUpdateStack(options).then(function (data) {
+            consoleWithMessage(`${opName}-CreateStackOrUpdate`, `Creating ${(data.StackName || data.StackId).truncate(50)}`);
+            const whileStatusIsPending = function () {
+                checkStackStatusOnComplete(options, data).then(function (data) {
+                    if (typeof data.Error === "undefined") {
+                        consoleWithMessage(`${opName}-CreateStackOrUpdate`, `${CDONE}(${data.StackName})${CRESET} ${data.StackStatus}`);
+                        if (data.StackStatus == "DELETE_COMPLETE" || data.StackStatus == "DELETE_FAILED" ||
+                            data.StackStatus == "ROLLBACK_COMPLETE" || data.StackStatus == "ROLLBACK_FAILED" ||
+                            data.StackStatus == "CLEANUP_COMPLETE" || data.StackStatus == "UPDATE_FAILED") {
+                            reject(data)
+                        } else {
+                            resolve(data)
+                        }
+                    } else {
+                        consoleWithMessage(`${opName}-CreateStackOrUpdate`, `(${(data.StackName || data.StackId).truncate(50)}) ${data.StackStatus}`);
+                        reject(data.Error)
+                    }
+                }, function (stackObject) {
+                    consoleWithMessage(`${opName}-CreateStackOrUpdate`, `(${options.stackName}) ${stackObject.StackStatus}`);
+                    setTimeout(whileStatusIsPending, internvalTime);
+                    if (--poolingTimeout <= 0) {
+                        reject({ message: `Operation Timeout: Running over ${timeoutInMinutes} mins` })
+                    }
+                })
+            }
+            setTimeout(whileStatusIsPending, internvalTime);
+        }, function (err) {
+            if (err.code == "ValidationError" && err.message.startsWith("No updates are to be performed.")) {
+                adaptor.describeStacks({
+                    StackName: stackName
+                }, function (err, data) {
+                    err ? reject(err) : resolve(data.Stacks[0])
+                })
+            } else {
+                consoleWithMessage(`${opName}-CreateStackOrUpdate`, `(${options.stackName}) ${CERROR}(ERROR)${CRESET} ${err}`);
+                reject(err)
+            }
+        })
+    })
+}
+
+const deleteStackOnComplete = function (options) {
+    return new Promise(function (resolve, reject) {
+        var { opName } = options
+        const internvalTime = process.env.SIMPLIFY_STACK_INTERVAL || 5000
+        var poolingTimeout = process.env.SIMPLIFY_STACK_TIMEOUT || 360
+        const timeoutInMinutes = poolingTimeout * internvalTime
+        opName = opName || `deleteStackOnComplete`
+        deleteExistingStack(options).then(function (data) {
+            consoleWithMessage(`${opName}-DeleteExistingStack`, `Deleting ${options.stackName}`);
+            const whileStatusIsPending = function () {
+                data.StackName = data.StackName || options.stackName
+                checkStackStatusOnComplete(options, data).then(function (data) {
+                    if (typeof data.Error === "undefined") {
+                        consoleWithMessage(`${opName}-DeleteExistingStack`, `${CDONE}(OK)${CRESET} with ${data.StackStatus}`);
+                        if (data.StackStatus == "DELETE_COMPLETE" || data.StackStatus == "DELETE_FAILED" ||
+                            data.StackStatus == "ROLLBACK_COMPLETE" || data.StackStatus == "ROLLBACK_FAILED") {
+                            reject(data)
+                        } else {
+                            resolve(data)
+                        }
+                    } else {
+                        if (data.Error.code === "ValidationError") {
+                            resolve({ RequestId: data.Error.requestId })
+                        } else {
+                            consoleWithMessage(`${opName}-DeleteExistingStack`, `(${options.stackName}) ${CERROR}(ERROR)${CRESET} ${data.Error}`);
+                            reject(data.Error)
+                        }
+                    }
+                }, function (stackObject) {
+                    consoleWithMessage(`${opName}-DeleteExistingStack`, `(${options.stackName}) ${stackObject.StackStatus}`);
+                    setTimeout(whileStatusIsPending, internvalTime);
+                    if (--poolingTimeout <= 0) {
+                        reject({ message: `Operation Timeout: Running over ${timeoutInMinutes} mins` })
+                    }
+                })
+            }
+            setTimeout(whileStatusIsPending, internvalTime);
+        }, function (err) {
+            consoleWithMessage(`${opName}-DeleteExistingStack`, `(${options.stackName}) ${CERROR}(ERROR)${CRESET} ${err}`);
+            reject(err)
+        })
+    })
+}
+
+const deleteFunctionLayerVersions = function (options) {
+    var { adaptor, opName, functionConfig } = options
+    opName = opName || `deleteFunctionLayerVersions`
+    return new Promise(function (resolve, reject) {
+        let layerDeletionIndex = 0
+        functionConfig.Layers = functionConfig.Layers || resolve([])
+        functionConfig.Layers.forEach(function (layer) {
+            const layerArnWithVersion = layer.split(':')
+            const layerOnlyARN = layerArnWithVersion.splice(0, layerArnWithVersion.length - 1).join(':')
+            consoleWithMessage(`${opName}-ListLayerVersions`, `${layerOnlyARN.truncate(50)}`);
+            adaptor.listLayerVersions({ LayerName: layerOnlyARN }, function (err, data) {
+                let layerVersionIndex = 0
+                function deleteOneLayerVersion(index) {
+                    const layerVersionNumber = data.LayerVersions[index].Version
+                    adaptor.deleteLayerVersion({ LayerName: layerOnlyARN, VersionNumber: layerVersionNumber }, function (err) {
+                        if (err) {
+                            consoleWithMessage(`${opName}-DeleteLayerVersion`, `${CERROR}(ERROR)${CRESET} ${err}`);
+                        } else if (++index < data.LayerVersions.length) {
+                            consoleWithMessage(`${opName}-DeleteLayerVersion`, `${CDONE}(OK)${CRESET} ${layerOnlyARN.truncate(50)}:${layerVersionNumber}`);
+                            deleteOneLayerVersion(index)
+                        } else {
+                            consoleWithMessage(`${opName}-DeleteLayerVersion`, `${CDONE}(OK)${CRESET} ${layerOnlyARN.truncate(50)}:${layerVersionNumber}`);
+                            if (++layerDeletionIndex >= functionConfig.Layers.length) {
+                                resolve(functionConfig.Layers)
+                            }
+                        }
+                    })
+                }
+                if (err) {
+                    consoleWithMessage(`${opName}-ListLayerVersions`, `${CERROR}(ERROR)${CRESET} ${err}`);
+                    reject(err)
+                } else if (data.LayerVersions.length > 0) {
+                    deleteOneLayerVersion(layerVersionIndex)
+                }
+            })
+        })
+    })
+}
+
+const deleteFunction = function (options) {
+    var { adaptor, opName, functionConfig, withLayerVersions } = options
+    opName = opName || `deleteFunction`
+    return new Promise(function (resolve, reject) {
+        consoleWithMessage(`${opName}-DeleteFunction`, `${functionConfig.FunctionName.truncate(50)}`);
+        adaptor.deleteFunction({
+            FunctionName: functionConfig.FunctionName
+        }, function (err) {
+            err ? reject(err) : withLayerVersions ? deleteFunctionLayerVersions(options).then(_ => resolve(functionConfig)).catch(err => reject(err)) : resolve(functionConfig)
+        })
+    })
+}
+
+const emptyBucketForDeletion = function (options) {
+    var { adaptor, opName, bucketName } = options
+    opName = opName || `emptyBucketForDeletion`
+    return new Promise(function (resolve, reject) {
+        adaptor.listObjects({
+            Bucket: bucketName
+        }, function (err, data) {
+            if (err) reject(err)
+            else {
+                let dataIndex = 0
+                data.Contents.forEach(function (content) {
+                    adaptor.deleteObject({
+                        Bucket: bucketName,
+                        Key: content.Key
+                    }, function (err, _) {
+                        if (++dataIndex >= data.Contents.length) {
+                            resolve(data.Contents)
+                        }
+                    })
+                })
+            }
+        })
+    })
+}
+
+const deleteStorageBucket = function (options) {
+    var { adaptor, opName, bucketName } = options
+    opName = opName || `deleteStorageBucket`
+    return new Promise(function (resolve, reject) {
+        adaptor.listObjects({ Bucket: bucketName }, function (err, data) {
+            if (err) {
+                consoleWithMessage(`${opName}-ListDeploymentObjects`, `${CERROR}(ERROR)${CRESET} ${err}`)
+                reject(err)
+            } else {
+                const bucketKeys = data.Contents.map(function (content) {
+                    return { Key: content.Key }
+                })
+                adaptor.deleteObjects({ Bucket: bucketName, Delete: { Objects: bucketKeys, Quiet: true } }, function (err) {
+                    if (err) {
+                        consoleWithMessage(`${opName}-DeleteDeploymentObjects`, `${CERROR}(ERROR)${CRESET} ${err}`)
+                        reject(err)
+                    } else {
+                        adaptor.deleteBucket({ Bucket: bucketName }, function (err, data) {
+                            if (err) {
+                                consoleWithMessage(`${opName}-DeleteDeploymentBucket`, `${CERROR}(ERROR)${CRESET} ${err}`)
+                                reject(err)
+                            } else {
+                                consoleWithMessage(`${opName}-DeleteDeploymentBucket`, `${CDONE}(OK)${CRESET} ${bucketName} was deleted!`)
+                                resolve(data)
+                            }
+                        })
+                    }
+                })
+            }
+        })
+    })
+}
+
+const setupKMSLogEncryption = function (options) {
+    var { adaptor, logger, opName, functionInfo, enableOrDisable } = options
+    opName = opName || `setupKMSLogEncryption`
+    return new Promise(function (resolve, reject) {
+        if (functionInfo.KMSKeyArn) {
+            adaptor.getKeyPolicy({
+                KeyId: functionInfo.KMSKeyArn,
+                PolicyName: "default"
+            }, function (err, policy) {
+                if (err) reject(err);
+                else {
+                    let policyData = JSON.parse(policy.Policy);
+                    let existedLogGroups = false
+                    const newPolicy = enableOrDisable ? {
+                        "Sid": `${functionInfo.FunctionName}-LogGroups-Permissions`,
+                        "Effect": "Allow",
+                        "Principal": {
+                            "Service": logger.config.endpoint
+                        },
+                        "Action": [
+                            "kms:Encrypt*",
+                            "kms:Decrypt*",
+                            "kms:ReEncrypt*",
+                            "kms:GenerateDataKey*",
+                            "kms:Describe*"
+                        ],
+                        "Resource": [
+                            `${functionInfo.FunctionArn}`,
+                            `${functionInfo.KMSKeyArn}`
+                        ]
+                    } : undefined
+                    policyData.Statement = policyData.Statement.map(function (statement) {
+                        if (statement && statement.Sid === `${functionInfo.FunctionName}-LogGroups-Permissions`) {
+                            existedLogGroups = true
+                            statement = newPolicy
+                        }
+                        return statement
+                    }).filter(state => state)
+                    if (!existedLogGroups && enableOrDisable) {
+                        policyData.Statement.push(newPolicy)
+                    } else if (existedLogGroups && !enableOrDisable) {
+                        policyData.Statement = policyData.Statement.filter(function (statement) {
+                            return statement.Sid !== `${functionInfo.FunctionName}-LogGroups-Permissions`
+                        })
+                    }
+                    adaptor.putKeyPolicy({
+                        KeyId: functionInfo.KMSKeyArn,
+                        PolicyName: "default",
+                        Policy: JSON.stringify(policyData)
+                    }, function (err, _) {
+                        if (err) reject(err);
+                        else {
+                            let params = {
+                                logGroupName: `/aws/lambda/${functionInfo.FunctionName}`
+                            };
+                            let actionName = 'associateKmsKey'
+                            if (!enableOrDisable /** disabled KMS */) {
+                                actionName = 'disassociateKmsKey'
+                            } else {
+                                params.kmsKeyId = functionInfo.KMSKeyArn
+                            }
+                            logger[actionName](params, function (err, _) {
+                                if (err) reject(err);
+                                else {
+                                    resolve(functionInfo)
+                                }
+                            })
+                        }
+                    })
+                }
+            })
+        } else {
+            let params = {
+                logGroupName: `/aws/lambda/${functionInfo.FunctionName}`
+            };
+            let actionName = 'associateKmsKey'
+            if (!enableOrDisable /** disabled KMS */) {
+                actionName = 'disassociateKmsKey'
+                logger[actionName](params, function (err, _) {
+                    if (err) reject(err);
+                    else {
+                        resolve(functionInfo)
+                    }
+                })
+            } else {
+                reject(`Missing required key 'KMSKeyId' in function csv file`)
+            }
         }
     })
 }
 
-if (ALLOWED_COMANDS.indexOf(cmdOPS) == -1) {
-    if (!fs.existsSync(path.resolve(argv.config || 'config.json'))) {
-        console.log(`\n`, `- ${CPROMPT}This is not a valid environment${CRESET}. You must create an environment first.`)
-        console.log(`\n`, `*`, `Create environment: \tsimplify-cli init`, `\n`)
-    } else {
-        getCurrentSession().then(session => {
-            if (session && session.isValid()) {
-                const username = session.getIdToken().payload['cognito:username']
-                analytics.updateEndpoint(username)
-                showSubscriptionPlan(session)
-                processCLI(cmdOPS, session).then(() => {
-                    analytics.updateEvent("__cmd.run", { "name": cmdOPS, "opt": optCMD }, username, cmdOPS == "DEPLOY")
-                    detectNewVersion()
-                })
-            } else {
-                if (process.env.ENABLE_TRACKING_DATA_FOR_ANALYTICS) {
-                    console.log(`${CPROMPT}Session is invalid${CRESET}. Please re-login.`)
-                    console.log(`\n *`, `Login: \tsimplify-cli login`)
-                } else {
-                    processCLI(cmdOPS, session).then(() => {
-                        analytics.updateEvent("__cmd.run", { "name": cmdOPS, "opt": optCMD }, username, cmdOPS == "DEPLOY")
-                        detectNewVersion()
-                    })
+const enableOrDisableLogEncryption = function (options) {
+    var { logger, opName, functionInfo, retentionInDays } = options
+    opName = opName || `enableOrDisableLogEncryption`
+    return new Promise(function (resolve, reject) {
+        if (typeof retentionInDays !== 'undefined') {
+            logger.putRetentionPolicy({
+                logGroupName: `/aws/lambda/${functionInfo.FunctionName}`,
+                retentionInDays: retentionInDays
+            }, function (err, _) {
+                if (err) reject(err);
+                else {
+                    setupKMSLogEncryption(options).then(data => resolve(data)).catch(err => reject(err))
                 }
-            }
-        }).catch(error => {
-            console.log(`${CPROMPT}${error}${CRESET}. Please login or register an account.`)
-            console.log(`\n *`, `Login: \tsimplify-cli login`)
-            console.log(` *`, `Register: \tsimplify-cli register`, `\n`)
-        })
-    }
-} else {
-    if (["INIT"].indexOf(cmdOPS) == -1) {
-        const configInfo = JSON.parse(fs.readFileSync(path.resolve(argv.config || 'config.json')))
-        if (configInfo.hasOwnProperty('Profile') && configInfo.hasOwnProperty('Region') && configInfo.hasOwnProperty('Bucket')) {
-            console.log(`\n`, ` * ${CPROMPT}Opensource Support${CRESET} : Community (FREE)`)
-            console.log(`  * ${CPROMPT}Enterprise Support${CRESET} : simplify-cli register`)
-            processCLI(cmdOPS).then(() => {
-                analytics.updateEvent("__cmd.run", { "name": cmdOPS, "opt": optCMD }, undefined, cmdOPS == "DEPLOY")
-                detectNewVersion()
             })
         } else {
-            console.log(`\n`, `- ${CPROMPT}This is not a valid environment${CRESET}. The ${argv.config || 'config.json'} is incorrect.`)
-            console.log(`\n`, `*`, `Create environment: \tsimplify-cli init`, `\n`)
+            resolve({})
         }
-    } else {
-        processCLI("INIT").then(() => {
-            if (process.env.ENABLE_TRACKING_DATA_FOR_ANALYTICS) {
-                analytics.updateEndpoint()
-            }
-            detectNewVersion()
-        })
-    }
+    })
 }
 
-module.exports = {
-    deployFunction,
-    destroyFunction,
-    deployStack,
-    destroyStack
+const getFunctionMetricStatistics = function (options) {
+    const { adaptor, functions, metricName, periods, startDate, endDate } = options
+    let defaultDate = new Date()
+    defaultDate.setHours(defaultDate.getHours() - 6)
+    return new Promise((resolve, reject) => {
+        let params = {
+            EndTime: endDate || new Date(),
+            MetricName: metricName || 'Invocations', /* Duration - Invocations - Throttles - Errors - ConcurrentExecutions */
+            Namespace: 'AWS/Lambda', /* required */
+            Period: periods || 10, /* 12 x (5 minutes) */
+            StartTime: startDate || defaultDate,
+            Dimensions: functions.map(func => {
+                return {
+                    Name: 'FunctionName',
+                    Value: `${func.FunctionName}`
+                }
+            }),
+            Statistics: [
+                "SampleCount",
+                "Average",
+                "Sum",
+                "Minimum",
+                "Maximum",
+                /* more items */
+            ]
+        };
+        adaptor.getMetricStatistics(params, function (err, data) {
+            err ? reject(err) : resolve(data)
+        });
+    })
 }
+
+const getFunctionMetricData = function (options) {
+    const { adaptor, functions, periods, startDate, endDate } = options
+    let defaultDate = new Date()
+    defaultDate.setHours(defaultDate.getHours() - 3)
+    let metricDataQueries = []
+    functions.map((func, idx) => {
+        const functionId = idx
+        metricDataQueries.push(
+            {
+                Id: `invocations_${functionId}`,
+                Label: `Invocations`,
+                MetricStat: {
+                    Metric: { /* required */
+                        Dimensions: [{
+                            Name: 'FunctionName',
+                            Value: `${func.FunctionName}`
+                        }],
+                        MetricName: 'Invocations', /* Duration - Invocations - Throttles - Errors - ConcurrentExecutions */
+                        Namespace: 'AWS/Lambda', /* required */
+                    },
+                    Period: periods || 300,
+                    Stat: 'Sum'
+                },
+                ReturnData: true
+            })
+        metricDataQueries.push({
+            Id: `errors_${functionId}`,
+            Label: `Errors`,
+            MetricStat: {
+                Metric: { /* required */
+                    Dimensions: [{
+                        Name: 'FunctionName',
+                        Value: `${func.FunctionName}`
+                    }],
+                    MetricName: 'Errors', /* Duration - Invocations - Throttles - Errors - ConcurrentExecutions */
+                    Namespace: 'AWS/Lambda', /* required */
+                },
+                Period: periods || 300,
+                Stat: 'Sum'
+            },
+            ReturnData: true
+        })
+        metricDataQueries.push({
+            Id: `duration_${functionId}`,
+            Label: `Duration`,
+            MetricStat: {
+                Metric: { /* required */
+                    Dimensions: [{
+                        Name: 'FunctionName',
+                        Value: `${func.FunctionName}`
+                    }],
+                    MetricName: 'Duration', /* Duration - Invocations - Throttles - Errors - ConcurrentExecutions */
+                    Namespace: 'AWS/Lambda', /* required */
+                },
+                Period: periods || 300,
+                Stat: 'Average'
+            },
+            ReturnData: true
+        })
+        metricDataQueries.push({
+            Id: `concurrent_${functionId}`,
+            Label: `Concurrency`,
+            MetricStat: {
+                Metric: { /* required */
+                    Dimensions: [{
+                        Name: 'FunctionName',
+                        Value: `${func.FunctionName}`
+                    }],
+                    MetricName: 'ConcurrentExecutions', /* Duration - Invocations - Throttles - Errors - ConcurrentExecutions */
+                    Namespace: 'AWS/Lambda', /* required */
+                },
+                Period: periods || 300,
+                Stat: 'Sum'
+            },
+            ReturnData: true
+        })
+        metricDataQueries.push({
+            Id: `throttle_${functionId}`,
+            Label: `Throttles`,
+            MetricStat: {
+                Metric: { /* required */
+                    Dimensions: [{
+                        Name: 'FunctionName',
+                        Value: `${func.FunctionName}`
+                    }],
+                    MetricName: 'Throttles', /* Duration - Invocations - Throttles - Errors - ConcurrentExecutions */
+                    Namespace: 'AWS/Lambda', /* required */
+                },
+                Period: periods || 300,
+                Stat: 'Sum'
+            },
+            ReturnData: true
+        })
+    })
+    return new Promise((resolve, reject) => {
+        let params = {
+            StartTime: startDate || defaultDate,
+            EndTime: endDate || new Date(),
+            MetricDataQueries: metricDataQueries
+        }
+        adaptor.getMetricData(params, function (err, data) {
+            err ? reject(err) : resolve(data)
+        });
+    })
+}
+
+const finishWithErrors = function (opName, err) {
+    opName = `${CBEGIN}Simplify${CRESET} | ${opName}` || `${CBEGIN}Simplify${CRESET} | unknownOperation`
+    console.error(`${opName}: \n - ${CERROR}${err}${CRESET} \n`)
+    process.exit(255)
+}
+
+const finishWithSuccess = function (message) {
+    console.log(`\n * ${message.truncate(150)} \n`)
+}
+
+const finishWithMessage = function (opName, message) {
+    opName = `${CBEGIN}FINISH${CRESET} | ${opName}` || `${CBEGIN}FINISH${CRESET} | unknownOperation`
+    console.log(`\n * ${opName + ':' || ''} ${message.truncate(100)} \n`)
+}
+
+var spinnerChars = ['|', '/', '-', '\\'];
+var spinnerIndex = 0;
+const silentWithSpinner = function () {
+    spinnerIndex = (spinnerIndex > 3) ? 0 : spinnerIndex;
+    process.stdout.write("\r" + spinnerChars[spinnerIndex++]);
+}
+
+const consoleWithMessage = function (opName, message, silent) {
+    opName = `${CBEGIN}Simplify${CRESET} | ${opName}` || `${CBEGIN}Simplify${CRESET} | unknownOperation`
+    !silent ? process.stdout.write("\r") && console.log(`${opName}:`, `${message.truncate(150)}`) : silentWithSpinner()
+}
+
+const consoleWithErrors = function (opName, error, silent) {
+    opName = `${CBEGIN}Simplify${CRESET} | ${opName}` || `${CBEGIN}Simplify${CRESET} | unknownOperation`
+    !silent ? process.stdout.write("\r") && console.log(`${opName}:`, `${CNOTIF}${(error.message || error).truncate(150)}${CRESET}`) : silentWithSpinner()
+}
+
+const deleteDeploymentBucket = deleteStorageBucket
+
+module.exports = {
+    showBoxBanner,
+    getContentArgs,
+    getContentFile,
+    getInputConfig,
+    uploadLocalFile,
+    getFunctionSha256,
+    uploadLocalDirectory,
+    uploadDirectoryAsZip,
+    createOrUpdateStack,
+    deleteStackOnComplete,
+    emptyBucketForDeletion,
+    deleteDeploymentBucket,
+    deleteStorageBucket,
+    deleteFunctionLayerVersions,
+    createFunctionLayerVersion,
+    updateFunctionConfiguration,
+    getFunctionConfiguration,
+    getFunctionMetricStatistics,
+    getFunctionMetricData,
+    publishFunctionVersion,
+    updateFunctionRolePolicy,
+    deleteFunctionRolePolicy,
+    createOrUpdateFunctionRole,
+    deleteFunctionRole,
+    checkStackStatusOnComplete,
+    createOrUpdateFunction,
+    deleteFunction,
+    createOrUpdateStackOnComplete,
+    enableOrDisableLogEncryption,
+    updateAPIGatewayDeployment,
+    getFunctionMetaInfos,
+    consoleWithMessage,
+    consoleWithErrors,
+    finishWithMessage,
+    finishWithSuccess,
+    finishWithErrors
+}
+
+process.env.DISABLE_BOX_BANNER || showBoxBanner()
