@@ -35,10 +35,6 @@ const COLORS = function (name) {
     const colorCodes = ["\x1b[31m", "\x1b[32m", "\x1b[33m", "\x1b[34m", "\x1b[35m", "\x1b[36m", "\x1b[31m", "\x1b[32m", "\x1b[33m", "\x1b[34m", "\x1b[35m", "\x1b[36m", "\x1b[31m", "\x1b[32m", "\x1b[33m", "\x1b[34m", "\x1b[35m", "\x1b[36m", "\x1b[31m", "\x1b[32m", "\x1b[33m", "\x1b[34m", "\x1b[35m", "\x1b[36m", "\x1b[31m", "\x1b[32m", "\x1b[33m", "\x1b[34m", "\x1b[35m", "\x1b[36m"]
     return colorCodes[(name.toUpperCase().charCodeAt(0) - 65) % colorCodes.length]
 }
-const envFilePath = path.resolve('.env')
-if (fs.existsSync(envFilePath)) {
-    require('dotenv').config({ path: envFilePath })
-}
 
 const showBoxBanner = function () {
     console.log("╓───────────────────────────────────────────────────────────────╖")
@@ -61,21 +57,21 @@ const getErrorMessage = function (error) {
 }
 
 const deployStack = function (options) {
-    const { configFile, envFile, dataFile, envName, configStackFolder, configStackName, regionName, headless } = options
-    const envFilePath = path.resolve(envFile || '.env')
+    const { configFile, envFile, dataFile, envName, configFolder, configStackName, regionName, headless } = options
+    const envFilePath = path.resolve(configFolder || configStackName, envFile || `.${envName ? envName + '.' : ''}env`)
     if (fs.existsSync(envFilePath)) {
         require('dotenv').config({ path: envFilePath })
     }
     const envOptions = { DEPLOYMENT_ENV: envName, DEPLOYMENT_REGION: regionName }
     var config = simplify.getInputConfig(path.resolve(configFile || 'config.json'), envOptions)
     const stackConfigFile = path.resolve(config.OutputFolder, envName || process.env.DEPLOYMENT_ENV, 'StackConfig.json')
-    const stackYamlFile = path.resolve(configStackFolder, `${configStackName}`, `template.yaml`)
+    const stackYamlFile = path.resolve(configFolder || configStackName, `template.yaml`)
     if (!fs.existsSync(stackYamlFile)) {
         simplify.finishWithErrors(`${opName}-CheckTemplate`, `${stackYamlFile} not found.`)
     }
     config.FunctionName = `${process.env.FUNCTION_NAME}-${process.env.DEPLOYMENT_ENV}`
     const stackFullName = `${process.env.PROJECT_NAME || config.FunctionName}-${configStackName}-${process.env.DEPLOYMENT_ENV}`
-    const stackExtension = path.resolve(configStackFolder, configStackName, `extension`)
+    const stackExtension = path.resolve(configFolder || configStackName, `extension`)
     return new Promise(function (resolve) {
         provider.setConfig(config).then(function () {
             simplify.uploadLocalFile({
@@ -129,8 +125,9 @@ const deployStack = function (options) {
                     let resultErrors = null
                     let stackOutputData = {}
                     let stackParamteres = {}
-                    if (fs.existsSync(stackConfigFile)) {
-                        stackOutputData = JSON.parse(fs.readFileSync(stackConfigFile))
+                    if (fs.existsSync(configFolder, stackConfigFile)) {
+                        const stackFileContent = fs.readFileSync(path.resolve(configFolder, stackConfigFile))
+                        stackOutputData = JSON.parse(stackFileContent.toString())
                         Object.keys(stackOutputData).map(stackName => {
                             Object.keys(stackOutputData[stackName]).map(param => {
                                 if (["LastUpdate", "Type"].indexOf(param) == -1) {
@@ -182,7 +179,7 @@ const deployStack = function (options) {
                 }
 
                 function saveParameters(resultParameters) {
-                    fs.writeFileSync(path.resolve(configStackFolder, configStackName, dataFile), JSON.stringify(resultParameters, null, 4))
+                    fs.writeFileSync(path.resolve(configFolder || configStackName, dataFile), JSON.stringify(resultParameters, null, 4))
                 }
 
                 function processParameters(resultErrors, resultParameters, stackParamteres, docYaml) {
@@ -217,8 +214,9 @@ const deployStack = function (options) {
                     var parameters = {
                         Environment: process.env.DEPLOYMENT_ENV
                     }
-                    if (fs.existsSync(path.resolve(configStackFolder, configStackName, dataFile))) {
-                        parameters = { ...parameters, ...JSON.parse(fs.readFileSync(path.resolve(configStackFolder, configStackName, dataFile))) }
+                    if (fs.existsSync(path.resolve(configFolder || configStackName, dataFile))) {
+                        const fileParameters = JSON.parse(fs.readFileSync(path.resolve(configFolder || configStackName, dataFile)))
+                        parameters = { ...parameters, ...fileParameters }
                     }
                     var stackPluginModule = {}
                     if (fs.existsSync(stackExtension + '.js')) {
@@ -240,13 +238,13 @@ const deployStack = function (options) {
                     simplify.finishWithErrors(`${opName}-LoadYAMLResource:`, getErrorMessage(error)) && resolve()
                 }
             })
-        }).catch(error => simplify.finishWithErrors(`${opName}-LoadYAMLResource:`, getErrorMessage(error)) && resolve())
+        }).catch(error => simplify.finishWithErrors(`${opName}-LoadConfig:`, getErrorMessage(error)) && resolve())
     })
 }
 
 const destroyStack = function (options) {
-    const { configFile, envFile, envName, configStackFolder, configStackName, regionName } = options
-    const envFilePath = path.resolve(envFile || '.env')
+    const { configFile, envFile, envName, configFolder, configStackName, regionName } = options
+    const envFilePath = path.resolve(configFolder || configStackName, envFile || `.${envName ? envName + '.' : ''}env`)
     if (fs.existsSync(envFilePath)) {
         require('dotenv').config({ path: envFilePath })
     }
@@ -257,7 +255,7 @@ const destroyStack = function (options) {
     return new Promise(function (resolve) {
         provider.setConfig(config).then(function () {
             function deleteStack(stackName, stackPluginModule) {
-                const stackExtension = path.resolve(configStackFolder, stackName, `extension`)
+                const stackExtension = path.resolve(configFolder || stackName, `extension`)
                 const stackFullName = `${process.env.PROJECT_NAME || config.FunctionName}-${stackName}-${process.env.DEPLOYMENT_ENV}`
                 simplify.consoleWithMessage(`${opName}-CleanupResource`, `StackName - (${stackFullName})`)
                 return new Promise(function (resolve) {
@@ -291,7 +289,7 @@ const destroyStack = function (options) {
             }
             function deleteByStackName(stackName) {
                 var stackPluginModule = {}
-                const stackExtension = path.resolve(configStackFolder, stackName, `extension`)
+                const stackExtension = path.resolve(configFolder || stackName, `extension`)
                 if (fs.existsSync(stackExtension + '.js')) {
                     stackPluginModule = require(stackExtension)
                 }
@@ -317,16 +315,17 @@ const destroyStack = function (options) {
 }
 
 const deployFunction = function (options) {
-    const { regionName, functionName, envName, configFile, envFile, roleFile, policyFile, sourceDir, forceUpdate, asFunctionLayer, publishNewVersion } = options
-    const envFilePath = path.resolve(functionName ? functionName : '', envFile || '.env')
+    const { regionName, functionName, envName, configFile, configFolder, envFile, roleFile, policyFile, sourceDir, forceUpdate, asFunctionLayer, publishNewVersion } = options
+    const configFolderOrFunctionName = configFolder || (functionName ? functionName : '')
+    const envFilePath = path.resolve(configFolderOrFunctionName, envFile || `.${envName ? envName + '.' : ''}env`)
     if (fs.existsSync(envFilePath)) {
         require('dotenv').config({ path: envFilePath })
     }
     const envOptions = { FUNCTION_NAME: functionName, DEPLOYMENT_ENV: envName, DEPLOYMENT_REGION: regionName }
-    var config = simplify.getInputConfig(path.resolve(functionName ? functionName : '', configFile || 'config.json'), envOptions)
+    var config = simplify.getInputConfig(path.resolve(configFolderOrFunctionName, configFile || 'config.json'), envOptions)
     const stackConfigFile = path.resolve(config.OutputFolder, envName || process.env.DEPLOYMENT_ENV, 'StackConfig.json')
-    var policyDocument = simplify.getContentFile(path.resolve(functionName ? functionName : '', policyFile || 'policy.json'), envOptions)
-    var assumeRoleDocument = simplify.getContentFile(path.resolve(functionName ? functionName : '', roleFile || 'role.json'), envOptions)
+    var policyDocument = simplify.getContentFile(path.resolve(configFolderOrFunctionName, policyFile || 'policy.json'), envOptions)
+    var assumeRoleDocument = simplify.getContentFile(path.resolve(configFolderOrFunctionName, roleFile || 'role.json'), envOptions)
     if (!fs.existsSync(path.resolve(config.OutputFolder))) {
         fs.mkdirSync(path.resolve(config.OutputFolder), { recursive: true })
     }
@@ -350,8 +349,8 @@ const deployFunction = function (options) {
                 adaptor: provider.getStorage(),
                 ...{
                     bucketKey: config.Bucket.Key,
-                    inputDirectory: path.resolve(functionName ? functionName : '', sourceDir || 'src'),
-                    outputFilePath: path.resolve(functionName ? functionName : '', 'dist'),
+                    inputDirectory: path.resolve(configFolderOrFunctionName, sourceDir || 'src'),
+                    outputFilePath: path.resolve(configFolderOrFunctionName, 'dist'),
                     hashInfo: { FileSha256: forceUpdate ? 'INVALID' : functionMeta.lashHash256 }
                 }
             })
@@ -403,9 +402,9 @@ const deployFunction = function (options) {
             }
             if (asFunctionLayer) {
                 try {
-                    let configInput = JSON.parse(fs.readFileSync(path.resolve(functionName ? functionName : '', configFile || 'config.json')))
+                    let configInput = JSON.parse(fs.readFileSync(path.resolve(configFolderOrFunctionName, configFile || 'config.json')))
                     configInput.Function.Layers = data.Layers
-                    fs.writeFileSync(path.resolve(functionName ? functionName : '', configFile || 'config.json'), JSON.stringify(configInput, null, 4))
+                    fs.writeFileSync(path.resolve(configFolderOrFunctionName, configFile || 'config.json'), JSON.stringify(configInput, null, 4))
                     resolve()
                 } catch (error) {
                     simplify.finishWithErrors(`${opName}-DeployLayer`, getErrorMessage(error)) && resolve()
@@ -446,13 +445,14 @@ const deployFunction = function (options) {
 }
 
 const destroyFunction = function (options) {
-    const { regionName, functionName, envName, configFile, envFile, withFunctionLayer } = options
-    const envFilePath = path.resolve(functionName ? functionName : '', envFile || '.env')
+    const { regionName, functionName, envName, configFile, configFolder, envFile, withFunctionLayer } = options
+    const configFolderOrFunctionName = configFolder || (functionName ? functionName : '')
+    const envFilePath = path.resolve(configFolderOrFunctionName, envFile || `.${envName ? envName + '.' : ''}env`)
     if (fs.existsSync(envFilePath)) {
         require('dotenv').config({ path: envFilePath })
     }
     const envOptions = { FUNCTION_NAME: functionName, DEPLOYMENT_ENV: envName, DEPLOYMENT_REGION: regionName }
-    var config = simplify.getInputConfig(path.resolve(functionName ? functionName : '', configFile || 'config.json'), envOptions)
+    var config = simplify.getInputConfig(path.resolve(configFolderOrFunctionName, configFile || 'config.json'), envOptions)
     const stackConfigFile = path.resolve(config.OutputFolder, envName || process.env.DEPLOYMENT_ENV, 'StackConfig.json')
     const outputFunctionFilePath = path.resolve(config.OutputFolder, `${envName || process.env.DEPLOYMENT_ENV}`, `${functionName || process.env.FUNCTION_NAME}.json`)
     const hashFunctionFilePath = path.resolve(config.OutputFolder, `${envName || process.env.DEPLOYMENT_ENV}`, `${functionName || process.env.FUNCTION_NAME}.hash`)
@@ -472,9 +472,9 @@ const destroyFunction = function (options) {
             }).then(data => {
                 delete stackList[functionName || process.env.FUNCTION_NAME]
                 fs.writeFileSync(stackConfigFile, JSON.stringify(stackList, null, 4))
-                let configInput = JSON.parse(fs.readFileSync(path.resolve(functionName ? functionName : '', configFile || 'config.json')))
+                let configInput = JSON.parse(fs.readFileSync(path.resolve(configFolderOrFunctionName, configFile || 'config.json')))
                 configInput.Function.Layers = []
-                fs.writeFileSync(path.resolve(functionName ? functionName : '', configFile || 'config.json'), JSON.stringify(configInput, null, 4))
+                fs.writeFileSync(path.resolve(configFolderOrFunctionName, configFile || 'config.json'), JSON.stringify(configInput, null, 4))
                 fs.unlinkSync(hashFunctionFilePath)
                 fs.unlinkSync(outputFunctionFilePath)
                 simplify.consoleWithMessage(`${opName}-DestroyFunction`, `Done. ${data.FunctionName}`)
@@ -647,6 +647,7 @@ const showAvailableStacks = (options, promptDescription) => {
         }
     })
     utilities.printTableWithJSON(tableStackData)
+    return Promise.resolve()
 }
 
 showBoxBanner()
@@ -665,7 +666,7 @@ var argv = require('yargs').usage('simplify-cli command [options]')
     .string('source').describe('source', 'function source to deploy').default('source', 'src')
     .string('env').describe('env', 'environment name')
     .string('region').describe('region', getOptionDesc('deploy', 'region'))
-    .string('dotenv').describe('dotenv', getOptionDesc('deploy', 'dotenv')).default('dotenv', '.env')
+    .string('dotenv').describe('dotenv', getOptionDesc('deploy', 'dotenv'))
     .boolean('update').describe('update', getOptionDesc('deploy', 'update')).default('update', false)
     .boolean('publish').describe('publish', getOptionDesc('deploy', 'publish')).default('publish', false)
     .boolean('layer').describe('layer', getOptionDesc('deploy', 'layer')).default('layer', false)
@@ -677,6 +678,14 @@ var optCMD = (argv._.length > 1 ? argv._[1] : undefined)
 var cmdArg = argv['stack'] || argv['function'] || optCMD
 var cmdType = cmdArg ? fs.existsSync(path.resolve(argv.location, cmdArg, "template.yaml")) ? "CF-Stack" : "Function" : undefined
 cmdType = argv['function'] ? "Function" : argv['stack'] ? "CF-Stack" : cmdType
+
+const envFilePath = path.resolve(argv['dotenv'] || `.${argv.env ? argv.env + '.' : ''}env`)
+
+console.log(`ENV: ${envFilePath}`)
+
+if (fs.existsSync(envFilePath)) {
+    require('dotenv').config({ path: envFilePath })
+}
 
 if (argv._.length == 0) {
     yargs.showHelp()
@@ -716,7 +725,7 @@ const processCLI = function (cmdRun, session) {
                 functionName: cmdArg,
                 configFile: argv.config,
                 configStackName: cmdArg,
-                configStackFolder: argv.location,
+                configFolder: argv.location,
                 envName: argv.env,
                 envFile: argv['dotenv'],
                 dataFile: argv.parameters,
@@ -742,6 +751,7 @@ const processCLI = function (cmdRun, session) {
             return (cmdType === "Function" ? destroyFunction({
                 regionName: argv.region,
                 configFile: argv.config,
+                configFolder: argv.location,
                 envName: argv.env,
                 envFile: argv['dotenv'],
                 functionName: cmdArg,
@@ -751,7 +761,7 @@ const processCLI = function (cmdRun, session) {
                 configFile: argv.config,
                 envName: argv.env,
                 envFile: argv['dotenv'],
-                configStackFolder: argv.location,
+                configFolder: argv.location,
                 configStackName: cmdArg
             }))
         } else {
