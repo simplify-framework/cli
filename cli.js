@@ -659,7 +659,7 @@ var argv = require('yargs').usage('simplify-cli command [options]')
     .string('stack').describe('stack', getOptionDesc('deploy', 'stack'))
     .string('function').describe('function', getOptionDesc('deploy', 'function'))
     .string('location').describe('location', getOptionDesc('deploy', 'location')).default('location', '')
-    .string('parameters').describe('parameters', getOptionDesc('deploy', 'parameters')).default('parameters', 'parameters.json')
+    .string('parameters').describe('parameters', getOptionDesc('deploy', 'parameters'))
     .string('config').describe('config', 'function configuration').default('config', 'config.json')
     .string('policy').describe('policy', 'function policy to attach').default('policy', 'policy.json')
     .string('role').describe('role', 'function policy to attach').default('role', 'role.json')
@@ -680,6 +680,7 @@ var cmdType = cmdArg ? fs.existsSync(path.resolve(argv.location, cmdArg, "templa
 cmdType = argv['function'] ? "Function" : argv['stack'] ? "CF-Stack" : cmdType
 
 const envFilePath = path.resolve(argv['dotenv'] || `.${argv.env ? argv.env + '.' : ''}env`)
+argv.parameters = argv.parameters ? argv.parameters : `parameters.${argv.env ? argv.env + '.' : ''}json`
 
 console.log(`ENV: ${envFilePath}`)
 
