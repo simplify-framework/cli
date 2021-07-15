@@ -321,11 +321,27 @@ const deployFunction = function (options) {
     if (fs.existsSync(envFilePath)) {
         require('dotenv').config({ path: envFilePath })
     }
+    var policyDocument = undefined
+    var assumeRoleDocument = {
+        "Version": "2012-10-17", "Statement": [{
+            "Effect": "Allow", "Principal": {
+                "Service": "lambda.amazonaws.com"
+            },
+            "Action": ["sts:AssumeRole"]
+        }]
+    }
     const envOptions = { FUNCTION_NAME: functionName, DEPLOYMENT_ENV: envName, DEPLOYMENT_REGION: regionName }
-    var config = simplify.getInputConfig(path.resolve(configFolderOrFunctionName, configFile || 'config.json'), envOptions)
+    const configFilePath = path.resolve(configFolderOrFunctionName, configFile || 'config.json')
+    var config = simplify.getInputConfig(configFilePath, envOptions)
     const stackConfigFile = path.resolve(config.OutputFolder, envName || process.env.DEPLOYMENT_ENV, 'StackConfig.json')
-    var policyDocument = simplify.getContentFile(path.resolve(configFolderOrFunctionName, policyFile || 'policy.json'), envOptions)
-    var assumeRoleDocument = simplify.getContentFile(path.resolve(configFolderOrFunctionName, roleFile || 'role.json'), envOptions)
+    const policyFilePath = path.resolve(configFolderOrFunctionName, policyFile || 'policy.json')
+    if (fs.existsSync(policyFilePath)) {
+        policyDocument = simplify.getContentFile(policyFilePath, envOptions)
+    }
+    const roleFilePath = path.resolve(configFolderOrFunctionName, roleFile || 'role.json')
+    if (fs.existsSync(roleFilePath)) {
+        assumeRoleDocument = simplify.getContentFile(roleFilePath, envOptions)
+    }
     if (!fs.existsSync(path.resolve(config.OutputFolder))) {
         fs.mkdirSync(path.resolve(config.OutputFolder), { recursive: true })
     }
@@ -335,6 +351,14 @@ const deployFunction = function (options) {
         functionMeta.lashHash256 = fs.readFileSync(hashFunctionFilePath).toString()
     }
     return new Promise(function (resolve) {
+        if (!config.Function) {
+            config.Function = {
+                FunctionName: `${functionName}`,
+                Runtime: process.env.FUNCTION_RUNTIME || 'nodejs14.x',
+                Handler: process.env.FUNCTION_HANDLER || 'index.handler'
+            }
+            simplify.consoleWithMessage(`${opName}-FunctionConfig`, `FunctionName= ${config.Function.FunctionName}, Runtime= ${config.Function.Runtime}, Handler= ${config.Function.Handler}`)
+        }
         provider.setConfig(config).then(_ => {
             const roleName = `${config.Function.FunctionName}Role`
             return simplify.createOrUpdateFunctionRole({
@@ -458,6 +482,14 @@ const destroyFunction = function (options) {
     const hashFunctionFilePath = path.resolve(config.OutputFolder, `${envName || process.env.DEPLOYMENT_ENV}`, `${functionName || process.env.FUNCTION_NAME}.hash`)
     const stackList = fs.existsSync(stackConfigFile) ? JSON.parse(fs.readFileSync(stackConfigFile)) : {}
     return new Promise(function (resolve) {
+        if (!config.Function) {
+            config.Function = {
+                FunctionName: `${functionName}`,
+                Runtime: process.env.FUNCTION_RUNTIME || 'nodejs14.x',
+                Handler: process.env.FUNCTION_HANDLER || 'index.handler'
+            }
+            simplify.consoleWithMessage(`${opName}-FunctionConfig`, `FunctionName= ${config.Function.FunctionName}, Runtime= ${config.Function.Runtime}, Handler= ${config.Function.Handler}`)
+        }
         provider.setConfig(config).then(_ => {
             const roleName = `${config.Function.FunctionName}Role`
             return simplify.deleteFunctionRole({
@@ -473,8 +505,10 @@ const destroyFunction = function (options) {
                 delete stackList[functionName || process.env.FUNCTION_NAME]
                 fs.writeFileSync(stackConfigFile, JSON.stringify(stackList, null, 4))
                 let configInput = JSON.parse(fs.readFileSync(path.resolve(configFolderOrFunctionName, configFile || 'config.json')))
-                configInput.Function.Layers = []
-                fs.writeFileSync(path.resolve(configFolderOrFunctionName, configFile || 'config.json'), JSON.stringify(configInput, null, 4))
+                if (configInput.Function) {
+                    configInput.Function.Layers = []
+                    fs.writeFileSync(path.resolve(configFolderOrFunctionName, configFile || 'config.json'), JSON.stringify(configInput, null, 4))
+                }
                 fs.unlinkSync(hashFunctionFilePath)
                 fs.unlinkSync(outputFunctionFilePath)
                 simplify.consoleWithMessage(`${opName}-DestroyFunction`, `Done. ${data.FunctionName}`)
