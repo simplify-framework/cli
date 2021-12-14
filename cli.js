@@ -125,7 +125,7 @@ const deployStack = function (options) {
                     let resultErrors = null
                     let stackOutputData = {}
                     let stackParamteres = {}
-                    if (fs.existsSync(configFolder, stackConfigFile)) {
+                    if (fs.existsSync(path.resolve(configFolder, stackConfigFile))) {
                         const stackFileContent = fs.readFileSync(path.resolve(configFolder, stackConfigFile))
                         stackOutputData = JSON.parse(stackFileContent.toString())
                         Object.keys(stackOutputData).map(stackName => {
