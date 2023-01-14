@@ -19,7 +19,7 @@ $ simplify-cli login
 $ simplify-cli create --help
 
 ╓───────────────────────────────────────────────────────────────╖
-║                 Simplify CLI - Version 0.1.24                 ║
+║                 Simplify CLI - Version 0.1.39                 ║
 ╙───────────────────────────────────────────────────────────────╜
 
 Create a deployment template: simplify-cli create [--template=]Detector | ShowLog
